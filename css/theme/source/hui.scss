@@ -1,0 +1,66 @@
+/**
+ * White theme for reveal.js. This is the opposite of the 'black' theme.
+ *
+ * By Hakim El Hattab, http://hakim.se
+ */
+
+// Default mixins and settings -----------------
+@import "../template/mixins";
+@import "../template/settings";
+// ---------------------------------------------
+// Include theme-specific fonts
+@import url(./fonts/source-sans-pro/source-sans-pro.css);
+// Override theme settings (see ../template/settings.scss)
+$backgroundColor: #fff;
+$mainColor: #222;
+$headingColor: #125687;
+$mainFontSize: 30px;
+$mainFont: 'Arial',
+Helvetica,
+sans-serif;
+$headingFont: 'Arial',
+Helvetica,
+sans-serif;
+$headingTextShadow: none;
+$headingLetterSpacing: normal;
+$headingTextTransform: none;
+$headingFontWeight: 600;
+$headingMargin: 70px 0 70px 0px;
+$linkColor: #125687;
+$linkColorHover: lighten( $linkColor, 15%);
+$selectionBackgroundColor: lighten( $linkColor, 25%);
+$heading1Size: 1.7em;
+$heading2Size: 1.6em;
+$heading3Size: 1.3em;
+$heading4Size: 1.0em;
+// Change text colors against dark slide backgrounds
+//@include dark-bg-text-color(#fff);
+// Theme template ------------------------------
+@import "../template/theme";
+// ---------------------------------------------
+
+
+.reveal .slides  {
+    text-align: left;
+}
+
+.reveal .title-slide h1{
+    margin: 120px 0 120px 0
+}
+
+.reveal .title-slide h2,
+.reveal .title-slide h3,
+.reveal .title-slide h4
+{
+    font-size: 0.8em;
+    color: #222;
+    margin: 0 0 10px 0;
+}
+
+.reveal ul {
+    line-height: 1.75;
+}
+
+.reveal ul ul{
+    line-height: 1.5;
+}
