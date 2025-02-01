@@ -1,40 +1,73 @@
 <!doctype html>
-<html lang="en">
-	<head>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<html>
 
-		<title>reveal.js</title>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-		<link rel="stylesheet" href="dist/reset.css">
-		<link rel="stylesheet" href="dist/reveal.css">
-		<link rel="stylesheet" href="dist/theme/black.css">
+    <title>reveal.js</title>
 
-		<!-- Theme used for syntax highlighted code -->
-		<link rel="stylesheet" href="plugin/highlight/monokai.css">
-	</head>
-	<body>
-		<div class="reveal">
-			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
-			</div>
-		</div>
+    <link rel="stylesheet" href="dist/reset.css">
+    <link rel="stylesheet" href="dist/reveal.css">
+    <link rel="stylesheet" href="dist/theme/hui.css" id="theme">
 
-		<script src="dist/reveal.js"></script>
-		<script src="plugin/notes/notes.js"></script>
-		<script src="plugin/markdown/markdown.js"></script>
-		<script src="plugin/highlight/highlight.js"></script>
-		<script>
-			// More info about initialization & config:
-			// - https://revealjs.com/initialization/
-			// - https://revealjs.com/config/
-			Reveal.initialize({
-				hash: true,
+    <!-- Theme used for syntax highlighted code -->
+    <link rel="stylesheet" href="highlight.js/build/styles/vs.css" id="highlight-theme">
+</head>
 
-				// Learn about plugins: https://revealjs.com/plugins/
-				plugins: [ RevealMarkdown, RevealHighlight, RevealNotes ]
-			});
-		</script>
-	</body>
+<body>
+    <div class="reveal">
+        <div class="slides">
+            <section
+                data-background="url('img/mw/image1.png')  no-repeat 100% 1%/10%, 
+            linear-gradient(to bottom, transparent calc(3% - 1px), rgba(18,86,135,1) calc(3%), transparent calc(3% + 1px) ) no-repeat 20% 0%/87%"
+                data-markdown="markdown/index.md" data-separator="---\n" data-separator-vertical="--\n"
+                data-separator-notes="^Note:">
+            </section>
+
+        </div>
+    </div>
+
+    <style type="text/css">
+        .reveal li {
+            text-align: left;
+        }
+
+        .reveal ul {
+            display: block;
+        }
+
+        .reveal ol {
+            display: block;
+        }
+
+        .reveal h2 {
+            font-size: 1.5em;
+        }
+    </style>
+
+    <script src="dist/reveal.js"></script>
+    <script src="plugin/notes/notes.js"></script>
+    <script src="plugin/markdown/markdown.js"></script>
+    <script src="plugin/highlight/highlight.js"></script>
+    <script>
+        // More info about initialization & config:
+        // - https://revealjs.com/initialization/
+        // - https://revealjs.com/config/
+        Reveal.initialize({
+            center: false,
+            width: 1024,
+            hash: true,
+            slideNumber: true,
+
+            markdown: {
+                smartypants: true
+            },
+            // Learn about plugins: https://revealjs.com/plugins/
+            plugins: [RevealMarkdown, RevealHighlight, RevealNotes]
+        });
+        Reveal.configure({ pdfSeparateFragments: false });
+    </script>
+</body>
+
 </html>
