@@ -165,7 +165,7 @@ class expected {
 
 # Example 2: `std::expected` Bug cont.
 
-```cpp[1-13|10|11|12]
+```cpp [1-13|10|11|12]
 struct Foo {
     Foo() = default;
   private:
@@ -181,7 +181,7 @@ int main() {
 }
 ```
 
-```
+```bash
 output.s: /app/example.cpp:15: int main(): Assertion `e2.has_value()' failed.
 Program terminated with signal: SIGSEGV
 ```
@@ -272,6 +272,12 @@ class expected {
 };
 ```
 
+---
+
+# Example 2: Fix Attempt 1 cont.
+
+- Make sure `has_val_` is written **after** `construct_at` is called
+
 - <!-- .element: class="fragment" -->
 What if the padding bits contain other data ?
 
@@ -284,7 +290,7 @@ std::expected<std::expected<Foo, ErrCode>, ErrCode> e = ...;
 e.value().emplace(); // the inner expected construct_at will overwrite outer expected bool
 ```
 
-```cpp [1-7 | 5 |1]
+```cpp [1-7 | 1,2 |5 |1]
 int3 | int2 | int1 | int0 | char | bool | has_value_1 | has_value2
 <-------------- Foo Data --------------->
 <--------------- Inner expected Data ---------------->
@@ -331,8 +337,21 @@ class expected {
 };
 ```
 
+---
+
+# Example 2: Fix Attempt 2 cont.
+
 - <!-- .element: class="fragment" -->
-  `bool has_val_` still in `val_`/`err_`'s padding if they have
+  `bool has_val_` still in `val_`/`err_`'s padding if they have, to save space
+
+- <!-- .element: class="fragment" -->
+  `repr_` can potentially contain paddings
+
+- <!-- .element: class="fragment" -->
+  `expected` no longer contains paddings (and same size as `repr`)
+
+- <!-- .element: class="fragment" -->
+  `[[no_unique_address]]` is not recursive
 
 - <!-- .element: class="fragment" -->
   `repr_`'s padding cannot be reused to prevent overwriting user data
