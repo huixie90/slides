@@ -32,7 +32,7 @@ data member is a potentially-overlapping subobject.
 
 ## Example 1 : `std::expected`
 
-```cpp [1-10|11-20]
+```cpp
 // libstdc++
 template <class Val, class Err>
 class expected {
@@ -42,7 +42,9 @@ class expected {
     };
     bool has_val_;
 };
+```
 
+```cpp
 // libc++
 template <class Val, class Err>
 class expected {
@@ -54,7 +56,7 @@ class expected {
     bool has_val_;
 };
 ```
-
+<!-- .element: class="fragment" -->
 
 - <!-- .element: class="fragment" --> What are the benefits?
 
@@ -120,6 +122,7 @@ compute():
         movabs  rax, 281474976710656
         ret
 ```
+<!-- .element: class="fragment" -->
 
 ---
 
@@ -276,12 +279,28 @@ What if the padding bits contain other data ?
 
 # Example 2: Fix Attempt 1 cont.
 
-```cpp
+```cpp [1|2]
 std::expected<std::expected<Foo, ErrCode>, ErrCode> e = ...;
 e.value().emplace(); // the inner expected construct_at will overwrite outer expected bool
 ```
 
-```cpp
+```cpp [1-7 | 5 |1]
+int3 | int2 | int1 | int0 | char | bool | has_value_1 | has_value2
+<-------------- Foo Data --------------->
+<--------------- Inner expected Data ---------------->
+<--------------------- Outer expected Data ---------------------->
+<----------------------------- Foo ------------------------------>
+<-------------- std::expected<Foo, ErrCode> --------------------->
+<--- std::expected<std::expected<Foo, ErrCode>, ErrCode> -------->
+```
+<!-- .element: class="fragment" -->
+
+
+---
+
+# Example 2: Fix Attempt 1 cont.2
+
+```cpp [1-4| 6|7|8]
 struct Bar {
     [[no_unique_address]] std::expected<Foo, ErrCode> e;
     char c;
@@ -291,7 +310,6 @@ Bar bar = ...;
 bar.c = 'c';
 bar.e.emplace(); // construct_at will overwrite c
 ```
-<!-- .element: class="fragment" -->
 
 ---
 
@@ -317,7 +335,7 @@ class expected {
   `bool has_val_` still in `val_`/`err_`'s padding if they have
 
 - <!-- .element: class="fragment" -->
-  `expected`'s padding cannot be reused to prevent overwriting user data
+  `repr_`'s padding cannot be reused to prevent overwriting user data
 
 ---
 
@@ -325,22 +343,27 @@ class expected {
 
 - If `bool has_val_` is not in `val_`/`err_`'s padding, `construct_at` can never overwrite padding beyond the `bool`
 
-```cpp
+```cpp [1-9 | 1 | 3-5 |6-9]
 std::expected<unsigned int, int> e = 0x12345678;
 
 [int byte3, int byte2, int byte1, int byte0, bool has_value, padding, padding, padding]
      78        56          34         12         01            00        00       00
+<------------- unsigned int -------------->
+<------------------ repr data ------------------------------->
+                                                              <----- repr padding ---->
+<--------------------------------------- repr ---------------------------------------->
+<------------------ std::expected<unsigned int, int> --------------------------------->
 ```
 
 - <!-- .element: class="fragment" -->
-  In this case, `expected`'s padding can be safely reused
+  In this case, `repr`'s padding can be safely reused
 
 ---
 
 # Example 2: Fix Attempt 3
 
 
-```cpp [1-9 | 11-14 | 16 | 18 | 21-22]
+```cpp [1-9 | 11-14 | 15 | 17 | 20-21]
 template <class Val, class Err>
 struct repr {
     union U {
@@ -355,7 +378,6 @@ template <class Val, class Err>
 struct expected_base {
     repr<Val, Err> repr_;
 };
-
 template <class Val, class Err> requires bool_is_not_in_padding
 struct expected_base {
     [[no_unique_address]] repr<Val, Err> repr_;
@@ -370,6 +392,8 @@ class expected : expected_base<Val, Err> {};
 # Takeaway 2
 
 - If you use `[[no_unique_address]]` with `construct_at`/placement `new`, you probably have a bug
+- <!-- .element: class="fragment" -->
+  `[[no_unique_address]]` is not recursive
 
 ---
 
@@ -438,6 +462,19 @@ class vector {
 
 # Example 3:  EBO cont.
 
+```cpp [1-6 | 2]
+template <class T, class Alloc>
+class vector : private Alloc {
+  pointer begin_;
+  pointer end_;
+  pointer end_cap_;
+};
+```
+
+---
+
+# Example 3:  EBO cont.2
+
 ```cpp [1-6 | 5]
 template <class T, class Alloc>
 class vector {
@@ -449,7 +486,7 @@ class vector {
 
 ---
 
-# Example 3:  EBO cont.2
+# Example 3:  EBO cont.3
 
 ```cpp [1-11 | 1-4 | 6-7 | 9-11]
 template <class T, int Idx, bool CanBeEmptyBase = is_empty<T>::value>
@@ -467,7 +504,7 @@ class __compressed_pair : private __compressed_pair_elem<T1, 0>
 
 ---
 
-# Example 3:  EBO cont.3
+# Example 3:  EBO cont.4
 
 ```cpp [1-7 | 6]
 template <class T, class Alloc>
@@ -481,7 +518,7 @@ class vector {
 
 ---
 
-# Example 3:  EBO cont.4
+# Example 3:  EBO cont.5
 
 ```cpp [1-5]
 template <class T1, class T2>
