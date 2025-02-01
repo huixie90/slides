@@ -18,6 +18,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+          ref: 'main'
 
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
@@ -29,3 +32,9 @@ jobs:
       - run: npm test
         env:
           CI: true
+
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@4.2.2
+        with:
+          branch: gh-pages
+          folder: .
