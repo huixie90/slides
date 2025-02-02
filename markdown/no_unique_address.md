@@ -83,32 +83,59 @@ static_assert(sizeof(std::expected<Foo, ErrCode>) == ?);
 # Example 1 : `std::expected` cont. 2
 
 ```cpp [1-3|5-7]
-// gcc
+// gcc libstdc++
 static_assert(sizeof(Foo) == 8);
 static_assert(sizeof(std::expected<Foo, ErrCode>) == 12);
-
-// clang
-static_assert(sizeof(Foo) == 8);
-static_assert(sizeof(std::expected<Foo, ErrCode>) == 8);
 ```
 
-- [Godbolt](https://godbolt.org/z/nPhT41j3d)
-- <!-- .element: class="fragment" --> What are the benefits?
+```cpp [1-7 | 1,2 |1,3 |1,4 | 1,5|1,6|1,7]
+int3 | int2 | int1 | int0 | char | bool | padd. | padd. | has_val | padd. | padd. | padd.
+<-------------- Foo Data --------------->
+                                        <- Foo padding ->
+<------------------------- Foo ------------------------->
+<--------------- std::expected<Foo, ErrCode> Data ---------------->
+                                                                  <-- expected padding -->
+<--------------------------- std::expected<Foo, ErrCode> Data --------------------------->
+```
+<!-- .element: class="fragment" -->
 
 ---
 
 # Example 1 : `std::expected` cont. 3
 
+``` cpp
+// clang libc++
+static_assert(sizeof(Foo) == 8);
+static_assert(sizeof(std::expected<Foo, ErrCode>) == 8);
+```
+
+```cpp [1-7 | 1,2 |1,3 |1,4 | 1,5 |1,6|1,7]
+int3 | int2 | int1 | int0 | char | bool | has_value | padding
+<-------------- Foo Data --------------->
+                                        <---- Foo Padding --->
+<--------------------------- Foo ---------------------------->
+<----- std::expected<Foo, ErrCode> Data ------------>
+                                                    <-ex pad->
+<------------ std::expected<Foo, ErrCode> ------------------->
+```
+<!-- .element: class="fragment" -->
+
+- <!-- .element: class="fragment" --> What are the benefits?
+- <!-- .element: class="fragment" -->
+  [Godbolt](https://godbolt.org/z/nPhT41j3d)
+
+---
+
+# Example 1 : `std::expected` cont. 4
+
 - `std::expected` is likely to be used as the return type
 
 ```cpp
-std::expected<Foo, ErrCode> compute() {
-    return Foo{};
-}
+std::expected<Foo, ErrCode> compute() { return Foo{}; }
 ```
 
-```x86asm [1-8|10-13]
-# gcc
+```x86asm
+# gcc libstdc++
 compute():
         mov     DWORD PTR [rsp-24], 0
         xor     eax, eax
@@ -116,8 +143,11 @@ compute():
         mov     ecx, DWORD PTR [rsp-24]
         mov     rdx, rcx
         ret
+```
+<!-- .element: class="fragment" -->
 
-# clang
+```x86asm
+# clang libc++
 compute():
         movabs  rax, 281474976710656
         ret
@@ -290,12 +320,12 @@ std::expected<std::expected<Foo, ErrCode>, ErrCode> e = ...;
 e.value().emplace(); // the inner expected construct_at will overwrite outer expected bool
 ```
 
-```cpp [1-7 | 1,2 |5 |1]
+```cpp [1-7 | 1,2 |1,3 |1,4|1,5|1,3]
 int3 | int2 | int1 | int0 | char | bool | has_value_1 | has_value2
 <-------------- Foo Data --------------->
+<----------------------------- Foo ------------------------------>
 <--------------- Inner expected Data ---------------->
 <--------------------- Outer expected Data ---------------------->
-<----------------------------- Foo ------------------------------>
 <-------------- std::expected<Foo, ErrCode> --------------------->
 <--- std::expected<std::expected<Foo, ErrCode>, ErrCode> -------->
 ```
@@ -316,6 +346,16 @@ Bar bar = ...;
 bar.c = 'c';
 bar.e.emplace(); // construct_at will overwrite c
 ```
+
+```cpp [1-6 | 1,2 |1,3 |1,4|1,5|1,6]
+int3 | int2 | int1 | int0 | char | bool | has_value | char c
+<-------------- Foo Data --------------->
+<----------------------------- Foo ------------------------->
+<----------------- expected Data ------------------>
+<-------------- std::expected<Foo, ErrCode> ---------------->
+<---------------------------- Bar -------------------------->
+```
+<!-- .element: class="fragment" -->
 
 ---
 
@@ -341,6 +381,33 @@ class expected {
 
 # Example 2: Fix Attempt 2 cont.
 
+```cpp
+struct Bar {
+    [[no_unique_address]] std::expected<Foo, ErrCode> e;
+    char c;
+};
+```
+
+```cpp [1-7 | 1,2 |1,3 |1,4 | 1,5 |1,6|1, 7|1,8|1,4,9|1,10-12]
+int3 | int2 | int1 | int0 | char | bool | has_val | pad. | char c | pad. | pad. | pad.
+<-------------- Foo Data --------------->
+                                        <- Foo Padding -->
+<--------------------------- Foo ------------------------>
+<-------------------- repr Data ------------------>
+                                                  <rep pad>
+<-------------------------- repr ------------------------>
+<------- std::expected<Foo, ErrCode> Data --------------->
+<------------ std::expected<Foo, ErrCode> --------------->
+<------------------------- Bar Data ------------------------------>
+                                                                  <-- Bar padding --->
+<---------------------------------- Bar  -------------------------------------------->
+```
+<!-- .element: class="fragment" -->
+
+---
+
+# Example 2: Fix Attempt 2 cont.2
+
 - <!-- .element: class="fragment" -->
   `bool has_val_` still in `val_`/`err_`'s padding if they have, to save space
 
@@ -358,7 +425,7 @@ class expected {
 
 ---
 
-# Example 2: Fix Attempt 2 cont.
+# Example 2: Fix Attempt 2 cont.3
 
 - If `bool has_val_` is not in `val_`/`err_`'s padding, `construct_at` can never overwrite padding beyond the `bool`
 
