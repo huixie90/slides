@@ -33,7 +33,7 @@ data member is a potentially-overlapping subobject.
 ## Example 1 : `std::expected`
 
 ```cpp
-// libstdc++
+// gcc libstdc++
 template <class Val, class Err>
 class expected {
     union {
@@ -45,7 +45,7 @@ class expected {
 ```
 
 ```cpp
-// libc++
+// clang libc++
 template <class Val, class Err>
 class expected {
     union U {
@@ -95,7 +95,7 @@ int3 | int2 | int1 | int0 | char | bool | padd. | padd. | has_val | padd. | padd
 <------------------------- Foo ------------------------->
 <--------------- std::expected<Foo, ErrCode> Data ---------------->
                                                                   <-- expected padding -->
-<--------------------------- std::expected<Foo, ErrCode> Data --------------------------->
+<----------------------------- std::expected<Foo, ErrCode> ------------------------------>
 ```
 <!-- .element: class="fragment" -->
 
@@ -169,7 +169,7 @@ compute():
 
 # Example 2: `std::expected` Bug
 
-```cpp [1-19|11-18]
+```cpp [1-19|11-18|12|13|14|16]
 template <class Val, class Err>
 class expected {
     union U {
@@ -320,9 +320,10 @@ std::expected<std::expected<Foo, ErrCode>, ErrCode> e = ...;
 e.value().emplace(); // the inner expected construct_at will overwrite outer expected bool
 ```
 
-```cpp [1-7 | 1,2 |1,3 |1,4|1,5|1,3]
+```cpp [1-7 | 1,2 |1,3 |1,4|1,5|1,6|1,7 | 1,4,8]
 int3 | int2 | int1 | int0 | char | bool | has_value_1 | has_value2
 <-------------- Foo Data --------------->
+                                        <------- Foo padding ---->
 <----------------------------- Foo ------------------------------>
 <--------------- Inner expected Data ---------------->
 <--------------------- Outer expected Data ---------------------->
@@ -347,11 +348,13 @@ bar.c = 'c';
 bar.e.emplace(); // construct_at will overwrite c
 ```
 
-```cpp [1-6 | 1,2 |1,3 |1,4|1,5|1,6]
+```cpp [1-6 | 1,2 |1,3 |1,4|1,5|1,6|1,7|1,4,8]
 int3 | int2 | int1 | int0 | char | bool | has_value | char c
 <-------------- Foo Data --------------->
+                                        <--- Foo padding --->
 <----------------------------- Foo ------------------------->
 <----------------- expected Data ------------------>
+                                                   <ex. pad.>
 <-------------- std::expected<Foo, ErrCode> ---------------->
 <---------------------------- Bar -------------------------->
 ```
@@ -394,7 +397,7 @@ int3 | int2 | int1 | int0 | char | bool | has_val | pad. | char c | pad. | pad. 
                                         <- Foo Padding -->
 <--------------------------- Foo ------------------------>
 <-------------------- repr Data ------------------>
-                                                  <rep pad>
+                                                  <rep pd>
 <-------------------------- repr ------------------------>
 <------- std::expected<Foo, ErrCode> Data --------------->
 <------------ std::expected<Foo, ErrCode> --------------->
@@ -422,6 +425,9 @@ int3 | int2 | int1 | int0 | char | bool | has_val | pad. | char c | pad. | pad. 
 
 - <!-- .element: class="fragment" -->
   `repr_`'s padding cannot be reused to prevent overwriting user data
+
+- <!-- .element: class="fragment" -->
+  It fixed the issue, but is it optimal?
 
 ---
 
@@ -462,7 +468,7 @@ struct repr {
 
 template <class Val, class Err>
 struct expected_base {
-    repr<Val, Err> repr_;
+    repr<Val, Err> repr_; // no [[no_unique_address]]
 };
 template <class Val, class Err> requires bool_is_not_in_padding
 struct expected_base {
