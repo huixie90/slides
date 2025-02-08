@@ -731,6 +731,7 @@ class join_with_view : public view_interface<join_with_view<V, Pattern>>{
 
 ---
 
+<!-- .slide: data-visibility="hidden" -->
 # QRT is Hiring
 
 - https://www.qube-rt.com/careers/
