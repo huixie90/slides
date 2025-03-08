@@ -25,7 +25,7 @@ data member is a potentially-overlapping subobject.
 - <!-- .element: class="fragment" -->
   BSI (WG21 UK National Body) member
 - <!-- .element: class="fragment" -->
-  WG21 SG9 (Committee Ranges study group) regular
+  WG21 SG9 (Committee Ranges study group)
 - <!-- .element: class="fragment" -->
   Write C++ Proposals
 
