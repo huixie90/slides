@@ -14,6 +14,7 @@ data member is a potentially-overlapping subobject.
 
 ---
 
+<!-- .slide: data-visibility="hidden" -->
 ## About Myself
 
 - Hui Xie (GitHub @huixie90)
