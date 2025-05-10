@@ -14,23 +14,6 @@ data member is a potentially-overlapping subobject.
 
 ---
 
-<!-- .slide: data-visibility="hidden" -->
-## About Myself
-
-- Hui Xie (GitHub @huixie90)
-- <!-- .element: class="fragment" -->
-  Software Developer @Qube Research & Technologies
-- <!-- .element: class="fragment" -->
-  libc++ (clang's STL) contributor
-- <!-- .element: class="fragment" -->
-  BSI (WG21 UK National Body) member
-- <!-- .element: class="fragment" -->
-  WG21 SG9 (Committee Ranges study group)
-- <!-- .element: class="fragment" -->
-  Write C++ Proposals
-
----
-
 ## Example 1 : `std::expected`
 
 ```cpp
@@ -731,8 +714,3 @@ class join_with_view : public view_interface<join_with_view<V, Pattern>>{
 - Use `[[no_unique_address]]` for conditional member variable
 
 ---
-
-<!-- .slide: data-visibility="hidden" -->
-# QRT is Hiring
-
-- https://www.qube-rt.com/careers/
