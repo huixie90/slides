@@ -15,7 +15,7 @@
   --r-block-margin: 20px;
   --r-heading-margin: 70px 0 70px 0px;
   --r-heading-font: Arial, Helvetica, sans-serif;
-  --r-heading-color: #125687;
+  --r-heading-color: #11598d;
   --r-heading-line-height: 1.2;
   --r-heading-letter-spacing: normal;
   --r-heading-text-transform: none;
@@ -27,10 +27,10 @@
   --r-heading3-size: 1.3em;
   --r-heading4-size: 1em;
   --r-code-font: monospace;
-  --r-link-color: #125687;
-  --r-link-color-dark: rgb(15.3, 73.1, 114.75);
-  --r-link-color-hover: rgb(27, 129, 202.5);
-  --r-selection-background-color: rgb(52.5, 154.5, 228);
+  --r-link-color: #11598d;
+  --r-link-color-dark: rgb(14.45, 75.65, 119.85);
+  --r-link-color-hover: rgb(25.2310126582, 132.0917721519, 209.2689873418);
+  --r-selection-background-color: rgb(54.6550632911, 156.9588607595, 230.8449367089);
   --r-selection-color: #fff;
   --r-overlay-element-bg-color: 240, 240, 240;
   --r-overlay-element-fg-color: 0, 0, 0;
