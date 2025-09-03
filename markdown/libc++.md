@@ -43,9 +43,7 @@
 ## `std::expected`
 
 ```cpp
-struct Foo {
-    Foo() = default;
-  private:
+class Foo {
     int i;
     char c;
     bool b;
@@ -53,13 +51,14 @@ struct Foo {
 
 enum class ErrCode : int { Err1, Err2, Err3 };
 ```
+<!-- .element: class="fragment" data-fragment-index="0" -->
 
 <div class="r-stack">
 
 ```cpp
 static_assert(sizeof(Foo) == ?);
 ```
-<!-- .element: class="fragment fade-out" data-fragment-index="1" -->
+<!-- .element: class="fragment fade-in" data-fragment-index="0" -->
 
 ```cpp
 static_assert(sizeof(Foo) == 8); // on most implementations
@@ -371,7 +370,7 @@ for (int& i : d) {
 }
 
 // 2
-std::ranges::for_each(d, [](int& i){
+std::ranges::for_each(d, [](int& i) {
     i = std::clamp(i, 200, 500);
 });
 ```
