@@ -40,6 +40,10 @@
 
 ---
 
+<!-- TODO: Add a short example to introduce what std::expected is, along with an intuition for how it might be implemented. -->
+
+---
+
 ## `std::expected`
 
 ```cpp
@@ -74,7 +78,7 @@ static_assert(sizeof(std::expected<Foo, ErrCode>) == ?);
 
 ---
 
-## `std::expected` libstdc++
+## `std::expected` in libstdc++
 
 ```cpp
 // gcc libstdc++
@@ -94,7 +98,7 @@ static_assert(sizeof(std::expected<Foo, ErrCode>) == ?);
 
 ---
 
-## `std::expected` libstdc++
+## `std::expected` in libstdc++
 
 ```cpp [1-3|5-7]
 // gcc libstdc++
@@ -113,7 +117,7 @@ int3 | int2 | int1 | int0 | char | bool | padd. | padd. | has_val | padd. | padd
 
 ---
 
-## `std::expected` libc++
+## `std::expected` in libc++
 
 ```cpp
 // clang libc++  simplified version
@@ -138,7 +142,7 @@ data member is a potentially-overlapping subobject.
 
 ---
 
-## `std::expected` libc++
+## `std::expected` in libc++
 
 ```cpp [1-6 | 1,2 |1,3 |1,4 | 1,5 |1,6]
 int3 | int2 | int1 | int0 | char | bool | has_value | padding
@@ -161,10 +165,10 @@ static_assert(sizeof(std::expected<Foo, ErrCode>) == 8);
 
 ## `sizeof(std::expected)` Smaller, Better ?
 
-- <!-- .element: class="fragment" --> Less Memory Footprints
+- <!-- .element: class="fragment" --> Smaller Memory Footprint
 - <!-- .element: class="fragment" --> Better Cache Locality
 - <!-- .element: class="fragment" -->
-  `std::expected` is likely to be used as the return type
+  `std::expected` is likely to be used as a return type
 
 ---
 
@@ -199,13 +203,13 @@ compute():
 ## Takeaway 1
 
 - <!-- .element: class="fragment" -->
-  Reuse tail paddings with `[[no_unique_address]]`
+  Reuse tail padding with `[[no_unique_address]]`
   - <!-- .element: class="fragment" -->
     Including the padding of an empty type
 
 ---
 
-## `std::expected` Bug
+## A Nasty Bug
 
 ```cpp [1-19|11-18|12|13|14|16]
 template <class Val, class Err>
@@ -231,7 +235,7 @@ class expected {
 
 ---
 
-## `std::expected` Bug
+## A Nasty Bug
 
 ```cpp [1-5|2|3|4]
 int main() {
@@ -249,7 +253,7 @@ Program terminated with signal: SIGSEGV
 
 ---
 
-## `std::expected` Bug : Zero-Initialisation
+## Zero-Initialisation
 
 > <!-- .element: class="fragment" -->
 To zero-initialize an object or reference of type T means:
@@ -258,7 +262,7 @@ if T is a (possibly cv-qualified) non-union class type, its padding bits ([basic
 
 ---
 
-## `std::expected` Bug
+## A Nasty Bug
 
 ```cpp [12|14|4|8]
 template <class Val, class Err>
@@ -286,68 +290,84 @@ class expected {
 
 ## Takeaway 2
 
-- Use `[[no_unique_address]]` together with `construct_at`/placement `new` judiciously
+- Don't mix manual lifetime management (`union`, `construct_at`, etc.) and `[[no_unique_address]]`
+
+<!-- TODO: Clarify that you don't mean manual MEMORY management, such as new/delete. I don't know how to best clarify that. Maybe saying it out loud is enough. -->
 
 ---
 
-## `stop_token`, `stop_source`, `stop_callback`
+## Another Example: `stop_token`
 
-- What member variables do we need in the "shared state"
-  - <!-- .element: class="fragment" -->
-    `stop_requested()`: needs a flag (`atomic<bool>` ?)
-  - <!-- .element: class="fragment" -->
-    `stop_possible()`: needs to count no. `stop_source`s (`atomic<unsigned>` ?)
-  - <!-- .element: class="fragment" -->
-    `stop_callback`: needs to store references to all the `stop_callback`s (`list<stop_callback*>` ?)
-  - <!-- .element: class="fragment" -->
-    `stop_callback`: needs to synchronise the list (`mutex` ?)
-    - <!-- .element: class="fragment" -->
-      but `mutex` can `throw`, and we need `noexcept`
-  - <!-- .element: class="fragment" -->
-     The state needs ref count to manage its lifetime (`shared_ptr` ?)
-  
----
-
-## `stop_token`, `stop_source`, `stop_callback`
-
-```cpp [1-15|2-7|9-11|13]
-class stop_state {
-  // The "callback list locked" bit implements the __atomic_unique_lock to
-  // guard the operations on the callback list
-  //
-  //       31 - 2          |  1                   |    0           |
-  //  stop_source counter  | callback list locked | stop_requested |
-  atomic<uint32_t> state_ = 0;
-
-  // Reference count for stop_token + stop_callback + stop_source
-  // It is used by __intrusive_shared_ptr, but it is stored here for better layout
-  atomic<uint32_t> ref_count_ = 0;
-
-  __intrusive_list_view<stop_callback_base> callback_list_; // stores pointer to the root node
-  thread_id requesting_thread_;
-};
-```
+<--! TODO: Add an example of what that thing is. It will be important to give an intuition about how that thing is implemented, like some kind of shared state and whatever else. -->
 
 ---
 
-## `stop_token`, `stop_source`, `stop_callback`
+## Under The Hood
 
 ```cpp [1-16 | 1-4 |6-9 | 11-16]
 class stop_token {
 private:
-  __intrusive_shared_ptr<stop_state> state_;
+  std::shared_ptr<__stop_state> state_;
 };
 
 class stop_source {
 private:
-  __intrusive_shared_ptr<stop_state> state_;
+  std::shared_ptr<__stop_state> state_;
 };
 
 template <class Callback>
 class stop_callback : private stop_callback_base {
 private:
   [[no_unique_address]] Callback callback_;
-  __intrusive_shared_ptr<stop_state> state_;
+  std::shared_ptr<__stop_state> state_;
+};
+```
+
+---
+
+## But What About The Shared State?
+
+- What member variables do we need in the "shared state"
+  - <!-- .element: class="fragment" -->
+    `stop_requested()`: needs a flag to hold whether a stop was requested
+  - <!-- .element: class="fragment" -->
+    `stop_possible()`: needs to count how many `stop_source`s exist
+  - <!-- .element: class="fragment" -->
+    `stop_callback`: needs to store references to all the `stop_callback`s
+  - <!-- .element: class="fragment" -->
+    `stop_callback`: needs to synchronise the list of callbacks
+    - <!-- .element: class="fragment" -->
+      major requirement is that the whole thing is `noexcept`, ruling out `mutex`
+  - <!-- .element: class="fragment" -->
+     The state needs a ref count to manage its lifetime
+  
+---
+
+## A Naive Implementation
+
+<!-- TODO: Add a code snippet showing a naive implementation of `__stop_state` using `std::list` and whatever. -->
+
+---
+
+## libc++'s Implementation
+
+<!-- TODO: Do some slide magic to hide and show the ref_count_, and explain that it allows you to use an intrusive shared ptr instead of a real one. -->
+
+```cpp [1-15|2-7|9-11|13]
+class __stop_state {
+  // The "callback list locked" bit implements a 1-bit lock to guard
+  // operations on the callback list
+  //
+  //       31 - 2          |  1                   |    0           |
+  //  stop_source counter  | callback list locked | stop_requested |
+  atomic<uint32_t> state_ = 0;
+
+  // Reference count for stop_token + stop_callback + stop_source
+  atomic<uint32_t> ref_count_ = 0;
+
+  // Lightweight intrusive non-owning list of callbacks to call when a
+  // stop is requested
+  __intrusive_list_view<stop_callback_base> callback_list_;
 };
 ```
 
