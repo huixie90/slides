@@ -1,24 +1,19 @@
 # What is libc++
 
-- <!-- .element: class="fragment" -->
-  A Standard Library Implementation
-- <!-- .element: class="fragment" -->
-  Part of LLVM Project
-- <!-- .element: class="fragment" -->
-  Ships with `clang`
+- A Standard Library Implementation
+- Part of LLVM Project
+- Ships with `clang`
 
 ---
 
 ## Contents
 
-- <!-- .element: class="fragment" -->
-  Various Optimisations in the Library Implementation
-  - <!-- .element: class="fragment" -->
-    Space Optimisations
-  - <!-- .element: class="fragment" -->
-    Algorithm Optimisations
-- <!-- .element: class="fragment" -->
-  Testing
+- Various Optimisations in the Library Implementation
+  - `std::expected`
+  - `stop_token`
+  - `ranges::for_each`, `ranges::copy`
+  - `flat_map`
+- Testing
 
 ---
 
@@ -40,7 +35,21 @@
 
 ---
 
-<!-- TODO: Add a short example to introduce what std::expected is, along with an intuition for how it might be implemented. -->
+## `std::expected`
+
+```cpp [1-11 | 4 | 6 - 9]
+std::expected<MyData, MyError> compute();
+
+int main() {
+  std::expected<MyData, MyError> res = compute();
+
+  if (res.has_value()) {
+    // some code that uses res.value();
+  } else {
+    // some code that handles res.error(); 
+  }
+}
+```
 
 ---
 
@@ -55,14 +64,12 @@ class Foo {
 
 enum class ErrCode : int { Err1, Err2, Err3 };
 ```
-<!-- .element: class="fragment" data-fragment-index="0" -->
 
 <div class="r-stack">
 
 ```cpp
 static_assert(sizeof(Foo) == ?);
 ```
-<!-- .element: class="fragment fade-in" data-fragment-index="0" -->
 
 ```cpp
 static_assert(sizeof(Foo) == 8); // on most implementations
@@ -290,34 +297,48 @@ class expected {
 
 ## Takeaway 2
 
-- Don't mix manual lifetime management (`union`, `construct_at`, etc.) and `[[no_unique_address]]`
-
-<!-- TODO: Clarify that you don't mean manual MEMORY management, such as new/delete. I don't know how to best clarify that. Maybe saying it out loud is enough. -->
+- Don't mix `[[no_unique_address]]` with manual lifetime management (`union`, `construct_at`, `placement-new`).
 
 ---
 
-## Another Example: `stop_token`
+## `stop_source`, `stop_token`, `stop_callback`
 
-<--! TODO: Add an example of what that thing is. It will be important to give an intuition about how that thing is implemented, like some kind of shared state and whatever else. -->
+```cpp [1-18 |3-7 | 9-15 | 17-18]
+std::stop_source stop_src;
+
+// Thread 1
+std::stop_token token = stop_src.get_token();
+while(!token.stop_requested()) {
+  // do some work
+}
+
+// Thread 2
+std::stop_token token = stop_src.get_token();
+std::stop_callback cb(token, [] { /*clean up*/});
+
+// Thread 3
+std::stop_token token = stop_src.get_token();
+std::stop_callback cb(token, [] { /* do stuff */ });
+
+// Thread 4
+stop_src.request_stop();
+```
 
 ---
 
 ## Under The Hood
 
-```cpp [1-16 | 1-4 |6-9 | 11-16]
+```cpp [1-13 | 1-3 | 5-7 | 9-13]
 class stop_token {
-private:
   std::shared_ptr<__stop_state> state_;
 };
 
 class stop_source {
-private:
   std::shared_ptr<__stop_state> state_;
 };
 
 template <class Callback>
-class stop_callback : private stop_callback_base {
-private:
+class stop_callback {
   [[no_unique_address]] Callback callback_;
   std::shared_ptr<__stop_state> state_;
 };
@@ -327,33 +348,67 @@ private:
 
 ## But What About The Shared State?
 
-- What member variables do we need in the "shared state"
+- <!-- .element: class="fragment" -->
+  `stop_requested()`: needs a flag to hold whether a stop was requested
+- <!-- .element: class="fragment" -->
+  `stop_possible()`: needs to count how many `stop_source`s exist
+- <!-- .element: class="fragment" -->
+  `stop_callback`: needs to store a list of refs to all the `stop_callback`s
+- <!-- .element: class="fragment" -->
+  `stop_callback`: needs to synchronise the list of callbacks
   - <!-- .element: class="fragment" -->
-    `stop_requested()`: needs a flag to hold whether a stop was requested
-  - <!-- .element: class="fragment" -->
-    `stop_possible()`: needs to count how many `stop_source`s exist
-  - <!-- .element: class="fragment" -->
-    `stop_callback`: needs to store references to all the `stop_callback`s
-  - <!-- .element: class="fragment" -->
-    `stop_callback`: needs to synchronise the list of callbacks
-    - <!-- .element: class="fragment" -->
-      major requirement is that the whole thing is `noexcept`, ruling out `mutex`
-  - <!-- .element: class="fragment" -->
-     The state needs a ref count to manage its lifetime
+    major requirement is that the whole thing is `noexcept`, ruling out `mutex`
+- <!-- .element: class="fragment" -->
+   The state needs a ref count to manage its lifetime
   
 ---
 
 ## A Naive Implementation
 
-<!-- TODO: Add a code snippet showing a naive implementation of `__stop_state` using `std::list` and whatever. -->
+```cpp [1-6 | 2 | 3| 4 | 5]
+class __stop_state {
+  std::atomic<bool> stop_requested_;
+  std::atomic<unsigned> stop_source_count_; // for stop_possible()
+  std::list<stop_callback*> stop_callbacks_;
+  std::mutex list_mutex_;
+};
+```
+
+```cpp
+static_assert(sizeof(__stop_state) == 72);
+```
+<!-- .element: class="fragment" -->
+
+```cpp
+static_assert(sizeof(stop_token) == 16);
+```
+<!-- .element: class="fragment" -->
 
 ---
 
 ## libc++'s Implementation
 
-<!-- TODO: Do some slide magic to hide and show the ref_count_, and explain that it allows you to use an intrusive shared ptr instead of a real one. -->
+<div class="r-stack">
 
-```cpp [1-15|2-7|9-11|13]
+```cpp [1-15 | 2-7 | 12-14]
+class __stop_state {
+  // The "callback list locked" bit implements a 1-bit lock to guard
+  // operations on the callback list
+  //
+  //       31 - 2          |  1                   |    0           |
+  //  stop_source counter  | callback list locked | stop_requested |
+  atomic<uint32_t> state_ = 0;
+
+
+
+
+  // Lightweight intrusive non-owning list of callbacks
+  // Only stores a pointer to the root node
+  __intrusive_list_view<stop_callback_base> callback_list_;
+};
+```
+
+```cpp [9-10]
 class __stop_state {
   // The "callback list locked" bit implements a 1-bit lock to guard
   // operations on the callback list
@@ -365,11 +420,24 @@ class __stop_state {
   // Reference count for stop_token + stop_callback + stop_source
   atomic<uint32_t> ref_count_ = 0;
 
-  // Lightweight intrusive non-owning list of callbacks to call when a
-  // stop is requested
+  // Lightweight intrusive non-owning list of callbacks
+  // Only stores a pointer to the root node
   __intrusive_list_view<stop_callback_base> callback_list_;
 };
 ```
+<!-- .element: class="fragment" -->
+
+</div>
+
+```cpp
+static_assert(sizeof(__stop_state) == 16);
+```
+<!-- .element: class="fragment" -->
+
+```cpp
+static_assert(sizeof(stop_token) == 8);
+```
+<!-- .element: class="fragment" -->
 
 ---
 
@@ -405,6 +473,9 @@ Benchmark                             for loop     for_each
 [for_loop vs. for_each]/32             12.5 ns      3.69 ns
 [for_loop vs. for_each]/8192           2973 ns       259 ns
 [for_loop vs. for_each]/65536         24221 ns      3327 ns
+
+
+clang20 -O3 cpu: M4 MAX 16 cores, memory: 48GB
 ```
 
 ---
@@ -848,7 +919,9 @@ TEST_LIBCPP_ASSERT_FAILURE(e.operator->(),
 
 ---
 
-## We Are Hiring
+## QRT is Hiring
 
 - https://www.qube-rt.com/careers/
+
+![qrt](./img/libc++/qrt.jpg)
 
