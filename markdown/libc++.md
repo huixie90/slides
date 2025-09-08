@@ -523,7 +523,7 @@ deque_iterator& operator++() {
 
 ## `for_each_segment`
 
-```cpp [1-13 | 4-5 | 8-11 | 9]
+```cpp [1-13 | 4-5 | 8,10 | 9]
 template <class SegmentedIterator, class Func>
 void __for_each_segment(SegmentedIterator first, SegmentedIterator last, Func func) {
   using Traits = SegmentedIteratorTraits<SegmentedIterator>;
@@ -539,7 +539,7 @@ void __for_each_segment(SegmentedIterator first, SegmentedIterator last, Func fu
 }
 ```
 
-```cpp [1-6|4]
+```cpp [1-6|1 | 4]
 template <class SegmentedIterator, class Func> requires is_segmented_iterator<SegmentedIterator>
 void for_each(SegmentedIterator first, SegmentedIterator last, Func func) {
   std::__for_each_segment(first, last, [&](auto inner_first, auto inner_last) {
@@ -602,7 +602,7 @@ pair<Iter, OutIter> __copy(Iter first, Iter last, OutIter result) const {
 }
 ```
 
-```cpp [1-5 | 3]
+```cpp [1-5 | 1 | 3]
 template <class In, class Out> requires can_lower_copy_assignment_to_memmove<In, Out>
 pair<In*, Out*> __copy(In* first, In* last, Out* result) const {
   std::__constexpr_memmove(result, first, last - first);
@@ -708,17 +708,19 @@ void __append(InputIterator first, Sentinel last) {
 - iterators that contain two or more underlying iterators
 - `flat_map::iterator` is `product_iterator`
 
-```cpp [1-11 | 1 | 4-6 | 8-10]
+```cpp [1-13 | 6-8 | 10 -12]
 template <class Iter> requires is_product_iterator_of_size<Iter, 2>
 void __append(Iter first, Iter last)
 {
+  using Traits = product_iterator_traits<Iter>;
+
   keys_.insert(keys_.end(),
-      product_iterator_traits<Iter>::template get_iterator_element<0>(first),
-      product_iterator_traits<Iter>::template get_iterator_element<0>(last));
+      Traits::template get_iterator<0>(first),
+      Traits::template get_iterator<0>(last));
 
   values_.insert(values_.end(),
-      product_iterator_traits<Iter>::template get_iterator_element<1>(first),
-      product_iterator_traits<Iter>::template get_iterator_element<1>(last));
+      Traits::template get_iterator<1>(first),
+      Traits::template get_iterator<1>(last));
 }
 ```
 <!-- .element: class="fragment" -->
