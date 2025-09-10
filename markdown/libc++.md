@@ -444,10 +444,11 @@ static_assert(sizeof(stop_token) == 8);
 ## Takeaway 3
 
 - Sometimes we can reuse unused bits to save space
+- Look for existing padding bytes for free storage
 
 ---
 
-## `segmented_iterator`: `for_each`
+## Segmented Iterators
 
 ```cpp [1-11 | 3-6 | 8 -11]
 std::deque<int> d = ...
@@ -465,7 +466,7 @@ std::ranges::for_each(d, [](int& i) {
 
 ---
 
-## `segmented_iterator`: `for_each` benchmark
+## Benchmarking Iteration
 
 ```bash
 Benchmark                             for loop     for_each
@@ -513,7 +514,7 @@ deque_iterator& operator++() {
 ## Segmented Iterators Concept
 
 - [Segmented Iterators and Hierarchical Algorithms, Matt Austern](http://lafstern.org/matt/segmented.pdf)
-- @philnik777 introduced `Segmented Iterator` concept into libc++
+- We introduced this `Segmented Iterator` concept into libc++
 - <!-- .element: class="fragment" -->
   Iterators over ranges of sub-ranges
 - <!-- .element: class="fragment" -->
@@ -539,8 +540,10 @@ void __for_each_segment(SegmentedIterator first, SegmentedIterator last, Func fu
 }
 ```
 
+<!-- TODO: update line numbers -->
 ```cpp [1-6|1 | 4]
-template <class SegmentedIterator, class Func> requires is_segmented_iterator<SegmentedIterator>
+template <class SegmentedIterator, class Func>
+  requires is_segmented_iterator<SegmentedIterator>
 void for_each(SegmentedIterator first, SegmentedIterator last, Func func) {
   std::__for_each_segment(first, last, [&](auto inner_first, auto inner_last) {
     std::for_each(inner_first, inner_last, func);
@@ -553,11 +556,13 @@ void for_each(SegmentedIterator first, SegmentedIterator last, Func func) {
 
 ## Code Generation Comparison
 
+<!-- TODO: The screenshot should label which one is which -->
+
 ![deque_godbolt](./img/libc++/deque_godbolt.png)
 
 ---
 
-## `segmented_iterator` `copy`
+## Optimizing `ranges::copy`
 
 ```cpp [1-14 | 4-10 | 12-14]
 std::vector<std::vector<int>> v = ...;
@@ -578,7 +583,7 @@ std::ranges::copy(v | std::views::join, out.begin());
 
 ---
 
-## `segmented_iterator`: `copy` benchmark
+## Benchmarking `ranges::copy`
 
 ```bash
 Benchmark                         for loop         copy
@@ -605,7 +610,7 @@ pair<Iter, OutIter> __copy(Iter first, Iter last, OutIter result) const {
 ```cpp [1-5 | 1 | 3]
 template <class In, class Out> requires can_lower_copy_assignment_to_memmove<In, Out>
 pair<In*, Out*> __copy(In* first, In* last, Out* result) const {
-  std::__constexpr_memmove(result, first, last - first);
+  std::memmove(result, first, last - first);
   return std::make_pair(last, result + n);
 }
 ```
@@ -615,14 +620,16 @@ pair<In*, Out*> __copy(In* first, In* last, Out* result) const {
 
 ## Takeaway 4
 
+<!-- TODO: reword in a way that is more user focused, maybe? -->
+
 - <!-- .element: class="fragment" -->
   We constantly add optimisations to algorithms, please use them
 
 - <!-- .element: class="fragment" -->
-  We try to categorise iterators/ranges in algorithms
+  We use general concepts to capture optimization opportunities
 
 - <!-- .element: class="fragment" -->
-  We reuse existing optimisations
+  Optimizations are often generic and can compose with each other
 
 ---
 
@@ -697,19 +704,26 @@ void __append(InputIterator first, Sentinel last) {
 ```
 
 - <!-- .element: class="fragment" -->
-  Missed existing optimisations in `vector::insert(pos, first, last)`
+  This misses existing optimisations in `vector::insert(pos, first, last)`
 - <!-- .element: class="fragment" -->
-  But we were given a range of `pair-like`
+  But we were given a range of "pairs", not two ranges
+
+---
+
+Can we reuse these optimizations in some cases?
 
 ---
 
 ## Introducing a Concept `product_iterator`
 
-- iterators that contain two or more underlying iterators
+- iterators that _aggregate_ multiple underlying iterators
 - `flat_map::iterator` is `product_iterator`
 
+<!-- TODO: update line numbers -->
+
 ```cpp [1-13 | 6-8 | 10 -12]
-template <class Iter> requires is_product_iterator_of_size<Iter, 2>
+template <class Iter>
+  requires is_product_iterator_of_size<Iter, 2>
 void __append(Iter first, Iter last)
 {
   using Traits = product_iterator_traits<Iter>;
@@ -727,7 +741,9 @@ void __append(Iter first, Iter last)
 
 ---
 
-## `product_iterator` benchmark
+<!-- TODO: consider adding a %diff or a xtimes speedup column to all of your benchmarks -->
+
+## Benchmarking `insert_range`
 
 ```bash
 Benchmark                 insert_pair  product_iterator
@@ -739,7 +755,7 @@ Benchmark                 insert_pair  product_iterator
 
 ---
 
-## Is there any other `product_iterator`?
+## Are there any other `product_iterator`?
 
 ```cpp [1-5]
 std::flat_map<int, double> m = ...;
@@ -767,12 +783,19 @@ m.insert_range(std::views::zip(newKeys, newValues));
 - <!-- .element: class="fragment" -->
   We reuse existing optimisations
 
+<!--
+TODO:
+suggested takeaways:
+1. Use the most precise API for what you're trying to achieve (e.g. insert_range instead of insert in a loop)
+2. Reuse library facilities when you can to benefit from existing opts. (e.g. don't roll your own zip iterator)
+-->
+
 ---
 
-## Testing
+## Testing in libc++
 
 - <!-- .element: class="fragment" -->
-  Testing almost every single word in the standard
+  We test almost every single word in the standard
 
 - <!-- .element: class="fragment" -->
   Our tests are also used by other implementations (msvc-stl)
@@ -809,6 +832,8 @@ constexpr expected(expected&& rhs) noexcept(see below);
 
 ## Testing `constexpr`
 
+<!-- TODO: linenos -->
+
 ```cpp [1-19 | 1 | 2-8 | 6-7 | 15-16]
 constexpr bool test() {
   // Test point 1
@@ -823,11 +848,9 @@ constexpr bool test() {
   return true;
 }
 
-int main(int argc, char** argv) {
+int main() {
   test();
   static_assert(test());
-
-  return 0;
 }
 ```
 
@@ -873,6 +896,8 @@ template<class U = remove_cv_t<T>> constexpr T value_or(U&& v) const &;
 - <!-- .element: class="fragment" -->
   Test that usage that violates the mandate should not compile
 
+<!-- TODO: Fix line non-wrapping in this slide -->
+
 ```cpp
 const std::expected<NonCopyable, int> f1{5};
 f1.value_or(5); // expected-note{{in instantiation of function template specialization 'std::expected<NonCopyable, int>::value_or<int>' requested here}}
@@ -907,17 +932,18 @@ TEST_LIBCPP_ASSERT_FAILURE(e.operator->(),
 <!-- .element: class="fragment" -->
 
 - <!-- .element: class="fragment" -->
-  `TEST_LIBCPP_ASSERT_FAILURE` installs assertion handler, fork the process
-   and match the child process stderr with the expected errors
+  `TEST_LIBCPP_ASSERT_FAILURE` installs assertion handler, forks the process
+   and matches the child process `stderr` with the expected errors
 
 ---
 
 ## Takeaway 6
 
-- `constexpr` tests are shared with normal runtime tests
-- We test the standard details extensively, including negative tests
-- `-Xclang -verify` is very useful
+- Share the same test code for `constexpr` and runtime
+- Use negative tests to ensure that things fail **as expected**
+- `-Xclang -verify` is very useful to test `static_assert`s
 
+<!-- TODO: I would mention that you want to make sure things fail as you intended. Otherwise e.g. a typo will make your test "fail" (hence pass), but that's not testing anything -->
 
 ---
 
