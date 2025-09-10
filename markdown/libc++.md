@@ -328,7 +328,7 @@ stop_src.request_stop();
 
 ## Under The Hood
 
-```cpp [1-13 | 1-3 | 5-7 | 9-13]
+```cpp [1-13]
 class stop_token {
   std::shared_ptr<__stop_state> state_;
 };
@@ -692,7 +692,7 @@ constexpr void insert_range(R&& rg) {
 
 ## How to `__append` ?
 
-```cpp [1-8 | 4 | 5-6]
+```cpp [1-8 | 3 | 4 | 5-6]
 template <class InputIterator, class Sentinel>
 void __append(InputIterator first, Sentinel last) {
   for (; first != last; ++first) {
@@ -944,6 +944,13 @@ TEST_LIBCPP_ASSERT_FAILURE(e.operator->(),
 - `-Xclang -verify` is very useful to test `static_assert`s
 
 <!-- TODO: I would mention that you want to make sure things fail as you intended. Otherwise e.g. a typo will make your test "fail" (hence pass), but that's not testing anything -->
+---
+
+## Contribute to libc++
+
+- [Getting Started](https://libcxx.llvm.org/Contributing.html)
+
+- [Github Issues](https://github.com/llvm/llvm-project/issues?q=is%3Aissue%20state%3Aopen%20label%3Alibc%2B%2B)
 
 ---
 
