@@ -8,7 +8,7 @@
 
 ## Contents
 
-- Various Optimisations in the Library Implementation
+- Various Optimisations in the Library
   - `std::expected`
   - `stop_token`
   - `ranges::for_each`, `ranges::copy`
@@ -107,13 +107,13 @@ static_assert(sizeof(std::expected<Foo, ErrCode>) == ?);
 
 ## `std::expected` in libstdc++
 
-```cpp [1-3|5-7]
+```cpp [1-2]
 // gcc libstdc++
 static_assert(sizeof(std::expected<Foo, ErrCode>) == 12);
 ```
 
 ```cpp [1-6 | 1,2 |1,3 |1,4 | 1,5|1,6]
-int3 | int2 | int1 | int0 | char | bool | pad. | pad. | has_val | pad. | pad. | pad.
+int3 | int2 | int1 | int0 | char | bool | xxxx | xxxx | has_val | xxxx | xxxx | xxxx
 <-------------- Foo Data --------------->
                                         <-  Foo pad. ->
 <--------------- std::expected<Foo, ErrCode> Data -------------->
@@ -152,12 +152,12 @@ data member is a potentially-overlapping subobject.
 ## `std::expected` in libc++
 
 ```cpp [1-6 | 1,2 |1,3 |1,4 | 1,5 |1,6]
-int3 | int2 | int1 | int0 | char | bool | has_value | padding
+int3 | int2 | int1 | int0 | char | bool | has_val | xxxx
 <-------------- Foo Data --------------->
-                                        <---- Foo Padding --->
-<----- std::expected<Foo, ErrCode> Data ------------>
-                                                    <-ex pad->
-<------------ std::expected<Foo, ErrCode> ------------------->
+                                        <--  Foo pad. -->
+<----- std::expected<Foo, ErrCode> Data ---------->
+                                                  <ex pd>
+<------------ std::expected<Foo, ErrCode> -------------->
 ```
 
 ``` cpp
@@ -732,7 +732,7 @@ void __append(InputIterator first, Sentinel last) {
 - <!-- .element: class="fragment" -->
   This misses existing optimisations in `vector::insert(pos, first, last)`
 - <!-- .element: class="fragment" -->
-  But we were given a range of "pairs", not two ranges
+  But we are given a range of "pairs", not two ranges
 - <!-- .element: class="fragment" -->
   Can we reuse these optimizations in some cases?
 
@@ -910,8 +910,8 @@ template<class U = remove_cv_t<T>> constexpr T value_or(U&& v) const &;
 
 ```cpp
 const std::expected<NonCopyable, int> f1{5};
-f1.value_or(5); // expected-note{{in instantiation of function template specialization 'std::expected<NonCopyable, int>::value_or<int>' requested here}}
-// expected-error-re@*:* {{static assertion failed {{.*}}value_type has to be copy constructible}}
+f1.value_or(5); // expected-note{{in instantiation of function template ...}}
+// expected-error-re@*:* {{static assertion failed {{.*}}value_type has to be copy ...}}
 ```
 <!-- .element: class="fragment" -->
 
@@ -969,3 +969,166 @@ TEST_LIBCPP_ASSERT_FAILURE(e.operator->(),
 
 ![qrt](./img/libc++/qrt.jpg)
 
+--
+
+## If You Do Mix `[[no_unique_address]]` with `union`, `std::construct_at`, or placement `new`
+
+- <!-- .element: class="fragment" -->
+  Be ready for bugs
+
+--
+
+## Dude, Where is `my_char` ?
+
+```cpp[1-8  | 6 | 8]
+struct MyStruct {
+  [[no_unique_address]] std::expected<Foo, ErrCode> my_foo;
+  char my_char;
+};
+
+MyStruct s{.my_foo = Foo{}, .my_char = 'x'};
+
+s.my_foo.emplace(Foo{});
+
+```
+
+```cpp[1-2]
+// Assertion failure!
+assert(s.my_char == 'x');
+```
+<!-- .element: class="fragment" -->
+
+--
+
+## Wait, is `my_char` in the Padding?
+
+```cpp
+template <class Val, class Err>
+class expected {
+    union U {
+        [[no_unique_address]] Val val_;
+        [[no_unique_address]] Err err_;
+    };
+    [[no_unique_address]] U u_;
+    bool has_val_;
+};
+```
+
+```cpp [1-6 | 5 | 1]
+int3 | int2 | int1 | int0 | char | bool | has_val | my_char
+<-------------- Foo Data --------------->
+                                        <---  Foo pad. --->
+<----- std::expected<Foo, ErrCode> Data ---------->
+                                                  <ex pad.>
+<------------- std::expected<Foo, ErrCode> --------------->
+<----------------------- MyStruct ------------------------>
+```
+<!-- .element: class="fragment" -->
+
+```cpp[1-2]
+s.my_foo.emplace(Foo{}); // It calls construct_at and clears the padding!
+```
+<!-- .element: class="fragment" -->
+
+--
+
+## Stop Users from Reusing `expected` Paddings
+
+```cpp[1-12 | 3 - 10 | 8 |12]
+template <class Val, class Err>
+class expected {
+  struct repr {
+    union U {
+        [[no_unique_address]] Val val_;
+        [[no_unique_address]] Err err_;
+    };
+    [[no_unique_address]] U u_;
+    bool has_val_;
+  };
+
+  repr repr_; // No [[no_unique_address]] here
+};
+```
+
+- <!-- .element: class="fragment" -->
+  `[[no_unique_address]]` is not transitive
+
+--
+
+## It Works
+
+```cpp[1-4]
+struct MyStruct {
+  [[no_unique_address]] std::expected<Foo, ErrCode> my_foo;
+  char my_char;
+};
+```
+
+```cpp [1-10 | 4 | 6]
+int3 | int2 | int1 | int0 | char | bool | has_val | xxxx | my_char | xxxx | xxxx | xxxx
+<-------------- Foo Data --------------->
+                                        <---  Foo pad. --->
+<------------------------ repr Data -------------->
+                                                 <repr pad.>
+<------------ std::expected<Foo, ErrCode> Data ----------->
+<------------ std::expected<Foo, ErrCode> ---------------->
+<----------------------- MyStruct Data ---------------------------->
+                                                                   <-MyStruct padding ->
+<-------------------------------------- MyStruct -------------------------------------->
+```
+
+--
+
+## But Can We do Better?
+
+```cpp[1-4]
+struct MyStruct {
+  [[no_unique_address]] std::expected<int, ErrCode> my_int;
+  char my_char;
+};
+```
+
+```cpp [1-8]
+int3 | int2 | int1 | int0 | has_val | xxxx | xxxx | xxxx | my_char | xxxx | xxxx | xxxx
+<--------------- repr Data --------->
+                                    <--- repr padding --->
+<------------ std::expected<int, ErrCode> Data ---------->
+<------------ std::expected<int, ErrCode> --------------->
+<----------------------- MyStruct Data ---------------------------->
+                                                                   <-MyStruct padding ->
+<-------------------------------------- MyStruct -------------------------------------->
+```
+<!-- .element: class="fragment" -->
+
+```cpp[1]
+s.my_int.emplace(42); // construct_at(int*, int) is very safe! int has no padding
+```
+<!-- .element: class="fragment" -->
+
+--
+
+## Final Fix
+
+```cpp [1-9 | 11-14 | 15 | 17 | 20-21]
+template <class Val, class Err>
+struct repr {
+    union U {
+        [[no_unique_address]] Val val_;
+        [[no_unique_address]] Err err_;
+    };
+    [[no_unique_address]] U u_;
+    bool has_val_;
+};
+
+template <class Val, class Err>
+struct expected_base {
+    repr<Val, Err> repr_; // no [[no_unique_address]]
+};
+template <class Val, class Err> requires bool_is_not_in_padding
+struct expected_base {
+    [[no_unique_address]] repr<Val, Err> repr_;
+};
+
+template <class Val, class Err>
+class expected : expected_base<Val, Err> {};
+```
