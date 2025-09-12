@@ -113,12 +113,12 @@ static_assert(sizeof(std::expected<Foo, ErrCode>) == 12);
 ```
 
 ```cpp [1-6 | 1,2 |1,3 |1,4 | 1,5|1,6]
-int3 | int2 | int1 | int0 | char | bool | padd. | padd. | has_val | padd. | padd. | padd.
+int3 | int2 | int1 | int0 | char | bool | pad. | pad. | has_val | pad. | pad. | pad.
 <-------------- Foo Data --------------->
-                                        <- Foo padding ->
-<--------------- std::expected<Foo, ErrCode> Data ---------------->
-                                                                  <-- expected padding -->
-<----------------------------- std::expected<Foo, ErrCode> ------------------------------>
+                                        <-  Foo pad. ->
+<--------------- std::expected<Foo, ErrCode> Data -------------->
+                                                                <-  expected pad. ->
+<-------------------------- std::expected<Foo, ErrCode> --------------------------->
 ```
 <!-- .element: class="fragment" -->
 
@@ -557,7 +557,14 @@ void for_each(SegmentedIterator first, SegmentedIterator last, Func func) {
 
 ## Code Generation Comparison
 
-![deque_godbolt](./img/libc++/deque_godbolt.png)
+<div style="display: grid; grid-template-columns: 1fr 1fr; text-align: center; font-size: 0.8em; font-weight: normal; margin: 0; padding: 0; line-height: 1;">
+  <div style="margin: 0; padding: 0;">for loop</div>
+  <div style="margin: 0; padding: 0;">ranges::for_each</div>
+</div>
+
+<img src="./img/libc++/deque_godbolt.png" style="width: 100%; height: auto; margin: 4px 0 0 0; padding: 0;">
+
+
 
 ---
 
@@ -669,6 +676,26 @@ m1.insert_range(m2);
 
 ---
 
+## P3567 `insert_range(sorted_unique, rg)`
+
+```cpp
+template<container-compatible-range<value_type> R>
+  void insert_range(sorted_unique_t, R&& rg);
+```
+
+- Complexity: Linear in `N`, where `N` is `size()` after the operation.
+
+```cpp [ 5]
+std::flat_map<int, double> m1 = ...;
+std::flat_map<int, double> m2 = ...;
+
+// Insert the elements of m2 into m1
+m1.insert_range(std::sorted_unique, m2);
+```
+<!-- .element: class="fragment" -->
+
+---
+
 ## `flat_map::insert_range` Implementation
 
 ```cpp [1-13 | 4 | 6-7 | 9 | 11-12 | 4 ]
@@ -772,7 +799,9 @@ m.insert_range(std::views::zip(newKeys, newValues));
 ## Takeaway 5
 
 - <!-- .element: class="fragment" -->
-  Use the most precise API for what you're trying to achieve (e.g. `insert_range` instead of insert in a loop)
+  Use the most precise API for what you're trying to achieve
+  - `insert_range` instead of `insert` in a loop
+  - Use `sorted_unique` if the inputs are already sorted
 
 - <!-- .element: class="fragment" -->
   Use library facilities (e.g `views::zip`) to benefit from concept-based optimisations
