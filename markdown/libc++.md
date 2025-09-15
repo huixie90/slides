@@ -641,6 +641,15 @@ pair<In*, Out*> __copy(In* first, In* last, Out* result) {
 
 ## `flat_map` Insertion
 
+```cpp
+// flat_map<int, double>
+class flat_map {
+  std::vector<int> keys_; // always sorted
+  std::vector<double> values_;
+  [[no_unique_address]] std::less<int> compare_;
+};
+```
+
 ```cpp [1-7 ]
 std::flat_map<int, double> m1 = ...;
 std::flat_map<int, double> m2 = ...;
@@ -650,6 +659,7 @@ for (const auto& [key, val] : m2) {
   m1.emplace(key, val);
 }
 ```
+<!-- .element: class="fragment" -->
 
 What is the time complexity?
 <!-- .element: class="fragment" -->
