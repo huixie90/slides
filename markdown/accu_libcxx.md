@@ -11,8 +11,8 @@
 - Various Optimisations in the Library
   - `for_each`, `copy`
   - `flat_map`
-  - `std::expected`
-  - `stop_token`
+  - `expected`
+  - `function_ref`
 
 ---
 
@@ -154,12 +154,12 @@ void for_each(SegmentedIterator first, SegmentedIterator last, Func func) {
 ## Optimizing `copy`
 
 ```cpp [1-14 | 4-10 | 12-14]
-std::vector<std::vector<int>> v = ...;
+std::vector<std::vector<int>> input = ...;
 std::vector<int> out;
 
 // 1
 out.reserve(total_size);
-for (const auto& inner : v) {
+for (const auto& inner : input) {
   for (int i: inner) {
     out.push_back(i);
   }
@@ -167,7 +167,7 @@ for (const auto& inner : v) {
 
 // 2
 out.resize(total_size);
-std::ranges::copy(v | std::views::join, out.begin());
+std::ranges::copy(input | std::views::join, out.begin());
 ```
 
 ---
@@ -222,186 +222,6 @@ pair<In*, Out*> __copy(In* first, In* last, Out* result) {
 
 ---
 
-## `flat_map` Insertion
-
-```cpp
-// flat_map<int, double>
-class flat_map {
-  std::vector<int> keys_; // always sorted
-  std::vector<double> values_;
-  [[no_unique_address]] std::less<int> compare_;
-};
-```
-
-```cpp [1-7 ]
-std::flat_map<int, double> m1 = ...;
-std::flat_map<int, double> m2 = ...;
-
-// Insert the elements of m2 into m1
-for (const auto& [key, val] : m2) {
-  m1.emplace(key, val);
-}
-```
-<!-- .element: class="fragment" -->
-
-What is the time complexity?
-<!-- .element: class="fragment" -->
-
----
-
-## `flat_map::insert_range`
-
-```cpp
-template<container-compatible-range<value_type> R>
-constexpr void insert_range(R&& rg);
-```
-
-- Complexity: `N + MlogM`, where `N` is `size()` before the operation and `M` is `ranges::distance(rg)`.
-
-```cpp [ 5]
-std::flat_map<int, double> m1 = ...;
-std::flat_map<int, double> m2 = ...;
-
-// Insert the elements of m2 into m1
-m1.insert_range(m2);
-```
-<!-- .element: class="fragment" -->
-
----
-
-## `insert_range(sorted_unique, rg)`
-
-```cpp
-template<container-compatible-range<value_type> R>
-  void insert_range(sorted_unique_t, R&& rg);
-```
-
-- Complexity: Linear in `N`, where `N` is `size()` after the operation.
-
-```cpp [ 5]
-std::flat_map<int, double> m1 = ...;
-std::flat_map<int, double> m2 = ...;
-
-// Insert the elements of m2 into m1
-m1.insert_range(std::sorted_unique, m2);
-```
-<!-- .element: class="fragment" -->
-
----
-
-## `flat_map::insert_range` Implementation
-
-```cpp [1-13 | 4 | 6-7 | 9 | 11-12 | 4 ]
-template<container-compatible-range<value_type> R>
-constexpr void insert_range(R&& rg) {
-
-  __append(ranges::begin(rg), ranges::end(rg)); // O(M)
-
-  auto zv = ranges::views::zip(keys_, values_);
-  ranges::sort(zv.begin() + old_size, zv.end()); // O(MLogM)
-
-  ranges::inplace_merge(zv.begin(), zv.begin() + old_size, zv.end()); // O(M+N)
-
-  auto dup_start = ranges::unique(zv).begin(); // O(M+N)
-  __erase(dup_start); // O(M+N)
-}
-```
-
----
-
-## How to `__append` ?
-
-```cpp [1-8 | 3 | 4 | 5-6]
-template <class InputIterator, class Sentinel>
-void __append(InputIterator first, Sentinel last) {
-  for (; first != last; ++first) {
-    std::pair<Key, Val> kv = *first;
-    keys_.insert(keys_.end(), std::move(kv.first));
-    values_.insert(values_.end(), std::move(kv.second));
-  }
-}
-```
-
-- <!-- .element: class="fragment" -->
-  This misses existing optimisations in `vector::insert(pos, first, last)`
-- <!-- .element: class="fragment" -->
-  But we are given a range of "pairs", not two ranges
-- <!-- .element: class="fragment" -->
-  Can we reuse these optimizations in some cases?
-
----
-
-## Introducing a Concept `product_iterator`
-
-- iterators that _aggregate_ multiple underlying iterators
-- `flat_map::iterator` is `product_iterator`
-
-
-```cpp [1-14 | 2 | 7-9 | 11-13]
-template <class Iter>
-  requires is_product_iterator_of_size<Iter, 2>
-void __append(Iter first, Iter last)
-{
-  using Traits = product_iterator_traits<Iter>;
-
-  keys_.insert(keys_.end(),
-      Traits::template get_iterator<0>(first),
-      Traits::template get_iterator<0>(last));
-
-  values_.insert(values_.end(),
-      Traits::template get_iterator<1>(first),
-      Traits::template get_iterator<1>(last));
-}
-```
-<!-- .element: class="fragment" -->
-
----
-
-## Benchmarking `insert_range`
-
-```bash
-Benchmark                 insert_pair  product_iterator        speed up
-
-[insert_range]/32              149 ns             74 ns           2.0x
-[insert_range]/8192          26682 ns           2995 ns           8.9x
-[insert_range]/65536        226235 ns          27844 ns           8.1x
-```
-
----
-
-## Are there any other `product_iterator`?
-
-```cpp [1-5]
-std::flat_map<int, double> m = ...;
-std::vector<int> newKeys = ...;
-std::vector<double> newValues = ...;
-
-// Insert newKeys and newValues into m
-```
-
-```cpp
-m.insert_range(std::views::zip(newKeys, newValues));
-```
-<!-- .element: class="fragment" -->
-
-`zip_view::iterator` is also a `product_iterator`
-<!-- .element: class="fragment" -->
-
----
-
-## Takeaway 2
-
-- <!-- .element: class="fragment" -->
-  Use the most precise API for what you're trying to achieve
-  - `insert_range` instead of `insert` in a loop
-  - Use `sorted_unique` if the inputs are already sorted
-
-- <!-- .element: class="fragment" -->
-  Use library facilities (e.g `views::zip`) to benefit from concept-based optimisations
-
-
----
-
 ## `std::expected`
 
 ```cpp [1-11 | 4 | 6 - 9]
@@ -435,7 +255,6 @@ class expected {
 
 Is this the optimal layout?
 <!-- .element: class="fragment fade-in" data-fragment-index="2" -->
-
 
 ---
 
@@ -571,7 +390,7 @@ compute():
 
 ---
 
-## Takeaway 3
+## Takeaway 2
 
 - <!-- .element: class="fragment" -->
   Reuse tail padding with `[[no_unique_address]]`
@@ -628,7 +447,7 @@ static_assert(sizeof(Bar) == 8);
 
 ---
 
-## Takeaway 4
+## Takeaway 3
 
 - <!-- .element: class="fragment" -->
   `[[no_unique_address]]` does not work with Itanium POD `struct`
@@ -920,7 +739,7 @@ class expected : expected_base<Val, Err> {};
 
 ---
 
-## Takeaway 5
+## Takeaway 4
 
 - <!-- .element: class="fragment" -->
   Don't mix `[[no_unique_address]]` with manual lifetime management (`union`, `construct_at`, `placement-new`).
@@ -928,6 +747,324 @@ class expected : expected_base<Val, Err> {};
   `[[no_unique_address]]` is not recursive
 
 ---
+
+## `flat_map` Insertion
+
+```cpp
+// flat_map<int, double>
+class flat_map {
+  std::vector<int> keys_; // always sorted
+  std::vector<double> values_;
+  [[no_unique_address]] std::less<int> compare_;
+};
+```
+
+```cpp [1-7 ]
+std::flat_map<int, double> m1 = ...;
+std::flat_map<int, double> m2 = ...;
+
+// Insert the elements of m2 into m1
+for (const auto& [key, val] : m2) {
+  m1.emplace(key, val);
+}
+```
+<!-- .element: class="fragment" -->
+
+What is the time complexity?
+<!-- .element: class="fragment" -->
+
+---
+
+## `flat_map::insert_range`
+
+```cpp
+template<container-compatible-range<value_type> R>
+constexpr void insert_range(R&& rg);
+```
+
+- Complexity: `N + MlogM`, where `N` is `size()` before the operation and `M` is `ranges::distance(rg)`.
+
+```cpp [ 5]
+std::flat_map<int, double> m1 = ...;
+std::flat_map<int, double> m2 = ...;
+
+// Insert the elements of m2 into m1
+m1.insert_range(m2);
+```
+<!-- .element: class="fragment" -->
+
+---
+
+## `insert_range(sorted_unique, rg)`
+
+```cpp
+template<container-compatible-range<value_type> R>
+  void insert_range(sorted_unique_t, R&& rg);
+```
+
+- Complexity: Linear in `N`, where `N` is `size()` after the operation.
+
+```cpp [ 5]
+std::flat_map<int, double> m1 = ...;
+std::flat_map<int, double> m2 = ...;
+
+// Insert the elements of m2 into m1
+m1.insert_range(std::sorted_unique, m2);
+```
+<!-- .element: class="fragment" -->
+
+---
+
+## `flat_map::insert_range` Implementation
+
+```cpp [1-13 | 4 | 6-7 | 9 | 11-12 | 4 ]
+template<container-compatible-range<value_type> R>
+constexpr void insert_range(R&& rg) {
+
+  __append(ranges::begin(rg), ranges::end(rg)); // O(M)
+
+  auto zv = ranges::views::zip(keys_, values_);
+  ranges::sort(zv.begin() + old_size, zv.end()); // O(MLogM)
+
+  ranges::inplace_merge(zv.begin(), zv.begin() + old_size, zv.end()); // O(M+N)
+
+  auto dup_start = ranges::unique(zv).begin(); // O(M+N)
+  __erase(dup_start); // O(M+N)
+}
+```
+
+---
+
+## How to `__append` ?
+
+```cpp [1-8 | 3 | 4 | 5-6]
+template <class InputIterator, class Sentinel>
+void __append(InputIterator first, Sentinel last) {
+  for (; first != last; ++first) {
+    std::pair<Key, Val> kv = *first;
+    keys_.insert(keys_.end(), std::move(kv.first));
+    values_.insert(values_.end(), std::move(kv.second));
+  }
+}
+```
+
+- <!-- .element: class="fragment" -->
+  This misses existing optimisations in `vector::insert(pos, first, last)`
+- <!-- .element: class="fragment" -->
+  But we are given a range of "pairs", not two ranges
+- <!-- .element: class="fragment" -->
+  Can we reuse these optimizations in some cases?
+
+---
+
+## Introducing a Concept `product_iterator`
+
+- iterators that _aggregate_ multiple underlying iterators
+- `flat_map::iterator` is `product_iterator`
+
+
+```cpp [1-14 | 2 | 7-9 | 11-13]
+template <class Iter>
+  requires is_product_iterator_of_size<Iter, 2>
+void __append(Iter first, Iter last)
+{
+  using Traits = product_iterator_traits<Iter>;
+
+  keys_.insert(keys_.end(),
+      Traits::template get_iterator<0>(first),
+      Traits::template get_iterator<0>(last));
+
+  values_.insert(values_.end(),
+      Traits::template get_iterator<1>(first),
+      Traits::template get_iterator<1>(last));
+}
+```
+<!-- .element: class="fragment" -->
+
+---
+
+## Benchmarking `insert_range`
+
+```bash
+Benchmark                 insert_pair  product_iterator        speed up
+
+[insert_range]/32              149 ns             74 ns           2.0x
+[insert_range]/8192          26682 ns           2995 ns           8.9x
+[insert_range]/65536        226235 ns          27844 ns           8.1x
+```
+
+---
+
+## Are there any other `product_iterator`?
+
+```cpp [1-5]
+std::flat_map<int, double> m = ...;
+std::vector<int> newKeys = ...;
+std::vector<double> newValues = ...;
+
+// Insert newKeys and newValues into m
+```
+
+```cpp
+m.insert_range(std::views::zip(newKeys, newValues));
+```
+<!-- .element: class="fragment" -->
+
+`zip_view::iterator` is also a `product_iterator`
+<!-- .element: class="fragment" -->
+
+---
+
+## Takeaway 5
+
+- <!-- .element: class="fragment" -->
+  Use the most precise API for what you're trying to achieve
+  - `insert_range` instead of `insert` in a loop
+  - Use `sorted_unique` if the inputs are already sorted
+
+- <!-- .element: class="fragment" -->
+  Use library facilities (e.g `views::zip`) to benefit from concept-based optimisations
+
+---
+
+## `function_ref`
+
+```cpp [1-8]
+// in a library
+double algo(std::function_ref<double(int)> f);
+
+// user
+void test() {
+  auto r = algo([](int x) { return x + 1; });
+  // ...
+}
+```
+
+---
+
+## `function_ref` Naive Implementation
+
+```cpp [1-20 | 3 | 4 | 6-7 | 9-15 | 10 | 11 - 15  | 12 | 13| 17 - 19]
+template <class Ret, class... Args>
+struct function_ref<Ret(Args...)> { // omit const and noexcept
+  using storage_t = void*;          // omit function ptr case
+  using call_t = Ret(storage_t, Args&&...);
+
+  storage_t storage_;
+  call_t call_;
+
+  template <class T> function_ref(T&& obj) { // omit requires ...
+    storage_ = std::address_of(obj);
+    call_ = [](storage_t storage, Args&&... args) -> Ret {
+      auto obj_ptr = static_cast<remove_reference_t<T>*>(storage);
+      return std::invoke(*obj_ptr, std::forward<Args>(args)...);
+    };
+  }
+
+  Ret operator()(Args... args) const {
+    return call_(storage_, std::forward<Args>(args)...);
+  }
+};
+```
+
+---
+
+## How Should We Pass the Arguments?
+
+```cpp [4, 11, 18]
+template <class Ret, class... Args>
+struct function_ref<Ret(Args...)> {
+  using storage_t = void*;
+  using call_t = Ret(storage_t, Args&&...);
+
+  storage_t storage_;
+  call_t call_;
+
+  template <class T> function_ref(T&& obj) {
+    storage_ = std::address_of(obj);
+    call_ = [](storage_t storage, Args&&... args) -> Ret {
+      auto obj_ptr = static_cast<remove_reference_t<T>*>(storage);
+      return obj_ptr->operator()(std::forward<Args>(args)...);
+    };
+  }
+
+  Ret operator()(Args... args) const {
+    return call_(storage_, std::forward<Args>(args)...);
+  }
+};
+```
+
+---
+
+## Value Categories of `Args`
+
+```cpp [4]
+template <class Ret, class... Args>
+struct function_ref<Ret(Args...)> {
+  using storage_t = void*;
+  using call_t = Ret(storage_t, Args&&...);
+  // ...
+};
+```
+
+- <!-- .element: class="fragment" -->
+  If `Args` are reference types (l-value ref or r-value ref), `Args&&` is correct
+
+- <!-- .element: class="fragment" -->
+  What if `Args` are PR values
+  - <!-- .element: class="fragment" -->
+    For small trivially copyable types, e.g. `int`, pass by value `Args`
+  - <!-- .element: class="fragment" -->
+    Otherwise, to avoid expensive moves, pass by rvalue ref `Args&&`
+
+---
+
+## Value Categories of `Args`
+
+```cpp [1-13 | 18]
+template <class Arg>
+struct arg {
+  using type = Arg&&;
+};
+
+template <class Arg>
+  requires(!is_reference_v<Arg> && is_trivially_copyable_v<Arg> && sizeof(Arg) <= 16)
+struct arg<Arg> {
+  using type = Arg;
+};
+
+template <class Arg>
+using arg_t = arg<Arg>::type;
+
+template <class Ret, class... Args>
+struct function_ref<Ret(Args...)> {
+  using storage_t = void*;
+  using call_t = Ret(storage_t, arg_t<Args>...);
+  // ...
+};
+```
+
+---
+
+## What about `static` Callable
+
+---
+
+## Contribute to libc++
+
+- [Getting Started](https://libcxx.llvm.org/Contributing.html)
+
+- [Github Issues](https://github.com/llvm/llvm-project/issues?q=is%3Aissue%20state%3Aopen%20label%3Alibc%2B%2B)
+
+---
+
+## QRT is Hiring
+
+- https://www.qube-rt.com/careers/
+
+![qrt](./img/libc++/qrt.jpg)
+
+--
 
 ## `stop_source`, `stop_token`, `stop_callback`
 
@@ -952,7 +1089,7 @@ std::stop_callback cb(token, [] { /* do stuff */ });
 stop_src.request_stop();
 ```
 
----
+--
 
 ## Under The Hood
 
@@ -972,7 +1109,7 @@ class stop_callback {
 };
 ```
 
----
+--
 
 ## But What About The Shared State?
 
@@ -989,7 +1126,7 @@ class stop_callback {
 - <!-- .element: class="fragment" -->
    The state needs a ref count to manage its lifetime
   
----
+--
 
 ## A Naive Implementation
 
@@ -1012,7 +1149,7 @@ static_assert(sizeof(stop_token) == 16);
 ```
 <!-- .element: class="fragment" -->
 
----
+--
 
 ## libc++'s Implementation
 
@@ -1067,7 +1204,7 @@ static_assert(sizeof(stop_token) == 8);
 ```
 <!-- .element: class="fragment" -->
 
----
+--
 
 ## Takeaway 6
 
@@ -1075,22 +1212,6 @@ static_assert(sizeof(stop_token) == 8);
   Sometimes we can reuse unused bits to save space
 - <!-- .element: class="fragment" -->
   Look for existing padding bytes for free storage
-
----
-
-## Contribute to libc++
-
-- [Getting Started](https://libcxx.llvm.org/Contributing.html)
-
-- [Github Issues](https://github.com/llvm/llvm-project/issues?q=is%3Aissue%20state%3Aopen%20label%3Alibc%2B%2B)
-
----
-
-## QRT is Hiring
-
-- https://www.qube-rt.com/careers/
-
-![qrt](./img/libc++/qrt.jpg)
 
 --
 
