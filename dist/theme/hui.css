@@ -14,7 +14,7 @@
   --r-main-color: #222;
   --r-block-margin: 20px;
   --r-heading-margin: 70px 0 70px 0px;
-  --r-heading-font: Arial, Helvetica, sans-serif;
+  --r-heading-font: Arial, sans-serif;
   --r-heading-color: #11598d;
   --r-heading-line-height: 1.2;
   --r-heading-letter-spacing: normal;
@@ -375,4 +375,12 @@
 
 .reveal ul ul {
   line-height: 1.5;
+}
+
+.reveal li > code {
+  color: #11598d;
+}
+
+.reveal p > code {
+  color: #11598d;
 }

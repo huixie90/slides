@@ -412,14 +412,14 @@ struct Bar {
   char c2;  
 };
 
-static_assert(sizeof(Bar) == 12);
+static_assert(sizeof(Bar) == 12); // c2 not in the padding !
 ```
 
 - <!-- .element: class="fragment" -->
   [Itanium ABI POD (C/C++98 `struct`)'s padding cannot be reused](https://itanium-cxx-abi.github.io/cxx-abi/abi.html#POD)
 
 - <!-- .element: class="fragment" -->
-  The first example uses `class`
+  The example `Foo` uses `class`
 
 ---
 
@@ -436,11 +436,14 @@ struct Bar {
   char c2{};  
 };
 
-static_assert(sizeof(Bar) == 8);
+static_assert(sizeof(Bar) == 8); // c2 in the padding !
 ```
 
 - <!-- .element: class="fragment" -->
   They are no longer `trivially_default_constructible`, hence not an Itanium POD
+
+- <!-- .element: class="fragment" -->
+  `Foo`'s padding can be reused!
 
 - <!-- .element: class="fragment" -->
   A good practice to avoid uninitialised values too!
@@ -451,6 +454,9 @@ static_assert(sizeof(Bar) == 8);
 
 - <!-- .element: class="fragment" -->
   `[[no_unique_address]]` does not work with Itanium POD `struct`
+
+- <!-- .element: class="fragment" -->
+  Add initialisers to members of a struct
 
 ---
 
@@ -469,8 +475,8 @@ static_assert(sizeof(Bar) == 8);
 struct empty {};
 
 struct foo {
-    char c;
     [[msvc::no_unique_address]] empty e;
+    char c;
 };
 
 static_assert(sizeof(foo) == 1);
@@ -591,13 +597,13 @@ It solves this issue, but is it enough?
 
 ```cpp[1-8  | 6 | 8]
 struct MyStruct {
-  [[no_unique_address]] std::expected<Foo, ErrCode> my_foo;
+  [[no_unique_address]] std::expected<Foo, ErrCode> my_exp;
   char my_char;
 };
 
-MyStruct s{.my_foo = Foo{}, .my_char = 'x'};
+MyStruct s{.my_exp = Foo{}, .my_char = 'x'};
 
-s.my_foo.emplace(Foo{});
+s.my_exp.emplace(Foo{});
 
 ```
 
@@ -613,7 +619,7 @@ assert(s.my_char == 'x');
 
 ```cpp
 struct MyStruct {
-  [[no_unique_address]] std::expected<Foo, ErrCode> my_foo;
+  [[no_unique_address]] std::expected<Foo, ErrCode> my_exp;
   char my_char;
 };
 ```
@@ -630,7 +636,7 @@ int3 | int2 | int1 | int0 | char | bool | has_val | my_char
 <!-- .element: class="fragment" -->
 
 ```cpp[1-2]
-s.my_foo.emplace(Foo{}); // It calls construct_at and clears the padding!
+s.my_exp.emplace(Foo{}); // It calls construct_at and clears the padding!
 ```
 <!-- .element: class="fragment" -->
 
@@ -663,7 +669,7 @@ class expected {
 
 ```cpp[1-4]
 struct MyStruct {
-  [[no_unique_address]] std::expected<Foo, ErrCode> my_foo;
+  [[no_unique_address]] std::expected<Foo, ErrCode> my_exp;
   char my_char;
 };
 ```
@@ -687,7 +693,7 @@ int3 | int2 | int1 | int0 | char | bool | has_val | xxxx | my_char | xxxx | xxxx
 
 ```cpp[1-4]
 struct MyStruct {
-  [[no_unique_address]] std::expected<int, ErrCode> my_int;
+  [[no_unique_address]] std::expected<int, ErrCode> my_exp;
   char my_char;
 };
 ```
@@ -705,7 +711,7 @@ int3 | int2 | int1 | int0 | has_val | xxxx | xxxx | xxxx | my_char | xxxx | xxxx
 <!-- .element: class="fragment" -->
 
 ```cpp[1]
-s.my_int.emplace(42); // construct_at(int*, int) is very safe! int has no padding
+s.my_exp.emplace(42); // construct_at(int*, int) is very safe! int has no padding
 ```
 <!-- .element: class="fragment" -->
 
@@ -744,18 +750,18 @@ class expected : expected_base<Val, Err> {};
 - <!-- .element: class="fragment" -->
   Don't mix `[[no_unique_address]]` with manual lifetime management (`union`, `construct_at`, `placement-new`).
 - <!-- .element: class="fragment" -->
-  `[[no_unique_address]]` is not recursive
+  `[[no_unique_address]]` is not recursive. Intermediate `struct` can stops padding being reused.
 
 ---
 
 ## `flat_map` Insertion
 
 ```cpp
-// flat_map<int, double>
+template <class Key, class Value, class Compare>
 class flat_map {
-  std::vector<int> keys_; // always sorted
-  std::vector<double> values_;
-  [[no_unique_address]] std::less<int> compare_;
+  std::vector<Key> keys_; // always sorted
+  std::vector<Value> values_;
+  [[no_unique_address]] Compare compare_;
 };
 ```
 
@@ -942,7 +948,7 @@ void test() {
 
 ---
 
-## `function_ref` Naive Implementation
+## `function_ref` Simple Implementation
 
 ```cpp [1-20 | 3 | 4 | 6-7 | 9-15 | 10 | 11 - 15  | 12 | 13| 17 - 19]
 template <class Ret, class... Args>
@@ -984,7 +990,7 @@ struct function_ref<Ret(Args...)> {
     storage_ = std::address_of(obj);
     call_ = [](storage_t storage, Args&&... args) -> Ret {
       auto obj_ptr = static_cast<remove_reference_t<T>*>(storage);
-      return obj_ptr->operator()(std::forward<Args>(args)...);
+      return std::invoke(*obj_ptr, std::forward<Args>(args)...);
     };
   }
 
@@ -1047,6 +1053,118 @@ struct function_ref<Ret(Args...)> {
 ---
 
 ## What about `static` Callable
+
+```cpp [1-5 | 7-9]
+struct Call {
+  static int operator()(int x, double y) {
+    // ...
+  }
+};
+
+const auto l = [](int x, double y) static {
+  // ...
+};
+```
+
+- <!-- .element: class="fragment" -->
+  Do you need to store the address of the callable?
+
+---
+
+## `function_ref` Implementation 2
+
+<div class="r-stack">
+
+```cpp
+template <class Ret, class... Args>
+struct function_ref<Ret(Args...)> {
+  using storage_t = void*;
+  using call_t = Ret(storage_t, arg_t<Args>...);
+
+  storage_t storage_;
+  call_t call_;
+
+  template <class T> function_ref(T&& obj) {
+    storage_ = std::address_of(obj);
+    call_ = [](storage_t storage, arg_t<Args>... args) -> Ret {
+      auto obj_ptr = static_cast<remove_reference_t<T>*>(storage);
+      return std::invoke(*obj_ptr, static_cast<arg_t<Args>>(args)...);
+    };
+  }
+};
+```
+<!-- .element: class="fragment fade-out" data-fragment-index="1" -->
+
+```cpp
+template <class Ret, class... Args>
+struct function_ref<Ret(Args...)> {
+  using storage_t = void*;
+  using call_t = Ret(storage_t, arg_t<Args>...);
+
+  storage_t storage_;
+  call_t call_;
+
+  template <class T> function_ref(T&& obj) requires static_callbale<T> {
+
+    call_ = [](storage_t        , arg_t<Args>... args) -> Ret {
+
+      return remove_cvref_t<T>::operator()(static_cast<arg_t<Args>>(args)...);
+    };
+  }
+};
+```
+<!-- .element: class="fragment fade-in" data-fragment-index="1" -->
+
+</div>
+
+---
+
+## `function_ref` Implementation 2
+
+- <!-- .element: class="fragment" -->
+  Save one store on construction
+
+- <!-- .element: class="fragment" -->
+  Save one load on calling the function
+
+- <!-- .element: class="fragment" -->
+  For small stackless functions, remove the need to take an address of the stack
+  
+  ```cpp
+  int algo(std::function_ref<int(int, int)>, int);
+
+  int test() {
+      return algo([](int x, int y) static {return x * y + 42;}, 42);
+  }
+  ```
+
+---
+
+## No Need to Take Address of Temporary Lambda
+
+![static](<img/libc++_accu/static.png>)
+
+---
+
+## Benchmarking `static` Optimisation
+
+```bash
+Benchmark                        non-static         static     speed up
+[non-static vs. static]/1              1 ns           1 ns          10%
+[non-static vs. static]/1024        1377 ns        1148 ns          16%
+[non-static vs. static]/131072    175980 ns      147871 ns          16%
+```
+
+---
+
+## Takeaway 6
+
+- <!-- .element: class="fragment" -->
+  Use `std::function_ref` if you need type erasure but not ownership
+  - e.g. an algorithm that takes a function and just invoke it
+
+- <!-- .element: class="fragment" -->
+  Mark lambdas' `operator()` `static` and benefit from STL optimisations
 
 ---
 

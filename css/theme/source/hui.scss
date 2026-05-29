@@ -19,7 +19,6 @@ $mainFont: 'Arial',
 Helvetica,
 sans-serif;
 $headingFont: 'Arial',
-Helvetica,
 sans-serif;
 $headingTextShadow: none;
 $headingLetterSpacing: normal;
@@ -63,4 +62,12 @@ $heading4Size: 1.0em;
 
 .reveal ul ul{
     line-height: 1.5;
+}
+
+.reveal li > code {
+    color: #11598d;
+}
+
+.reveal p > code {
+    color: #11598d;
 }
