@@ -990,7 +990,7 @@ struct function_ref<Ret(Args...)> {
     storage_ = std::address_of(obj);
     call_ = [](storage_t storage, Args&&... args) -> Ret {
       auto obj_ptr = static_cast<remove_reference_t<T>*>(storage);
-      return obj_ptr->operator()(std::forward<Args>(args)...);
+      return std::invoke(*obj_ptr, std::forward<Args>(args)...);
     };
   }
 
@@ -1088,12 +1088,8 @@ struct function_ref<Ret(Args...)> {
     storage_ = std::address_of(obj);
     call_ = [](storage_t storage, arg_t<Args>... args) -> Ret {
       auto obj_ptr = static_cast<remove_reference_t<T>*>(storage);
-      return obj_ptr->operator()(static_cast<arg_t<Args>>(args)...);
+      return std::invoke(*obj_ptr, static_cast<arg_t<Args>>(args)...);
     };
-  }
-
-  Ret operator()(Args... args) const {
-    return call_(storage_, std::forward<Args>(args)...);
   }
 };
 ```
@@ -1114,10 +1110,6 @@ struct function_ref<Ret(Args...)> {
 
       return remove_cvref_t<T>::operator()(static_cast<arg_t<Args>>(args)...);
     };
-  }
-
-  Ret operator()(Args... args) const {
-    return call_(storage_, std::forward<Args>(args)...);
   }
 };
 ```
