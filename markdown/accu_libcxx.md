@@ -10,8 +10,8 @@
 
 - Various Optimisations in the Library
   - `for_each`, `copy`
-  - `flat_map`
   - `expected`
+  - `flat_map`
   - `function_ref`
 
 ---
@@ -394,8 +394,6 @@ compute():
 
 - <!-- .element: class="fragment" -->
   Reuse tail padding with `[[no_unique_address]]`
-  - <!-- .element: class="fragment" -->
-    Including the padding of an empty type
 
 ---
 
@@ -419,7 +417,7 @@ static_assert(sizeof(Bar) == 12); // c2 not in the padding !
   [Itanium ABI POD (C/C++98 `struct`)'s padding cannot be reused](https://itanium-cxx-abi.github.io/cxx-abi/abi.html#POD)
 
 - <!-- .element: class="fragment" -->
-  The example `Foo` uses `class`
+  My example `Foo` uses `class`
 
 ---
 
@@ -561,6 +559,12 @@ class expected {
     }
 };
 ```
+
+---
+
+## Takeaway 4
+
+- Don't mix `[[no_unique_address]]` with manual lifetime management (`union`, `construct_at`, `placement-new`).
 
 ---
 
@@ -745,10 +749,11 @@ class expected : expected_base<Val, Err> {};
 
 ---
 
-## Takeaway 4
+## Takeaway 5
 
 - <!-- .element: class="fragment" -->
-  Don't mix `[[no_unique_address]]` with manual lifetime management (`union`, `construct_at`, `placement-new`).
+  Be aware of the consequence if you do mix `[[no_unique_address]]` with manual lifetime management (`union`, `construct_at`, `placement-new`).
+
 - <!-- .element: class="fragment" -->
   `[[no_unique_address]]` is not recursive. Intermediate `struct` can stops padding being reused.
 
@@ -921,7 +926,7 @@ m.insert_range(std::views::zip(newKeys, newValues));
 
 ---
 
-## Takeaway 5
+## Takeaway 6
 
 - <!-- .element: class="fragment" -->
   Use the most precise API for what you're trying to achieve
@@ -937,6 +942,7 @@ m.insert_range(std::views::zip(newKeys, newValues));
 
 ```cpp [1-8]
 // in a library
+// the algo should just invoke f instead of storing it
 double algo(std::function_ref<double(int)> f);
 
 // user
@@ -957,7 +963,7 @@ struct function_ref<Ret(Args...)> { // omit const and noexcept
   using call_t = Ret(storage_t, Args&&...);
 
   storage_t storage_;
-  call_t call_;
+  call_t* call_;
 
   template <class T> function_ref(T&& obj) { // omit requires ...
     storage_ = std::address_of(obj);
@@ -984,7 +990,7 @@ struct function_ref<Ret(Args...)> {
   using call_t = Ret(storage_t, Args&&...);
 
   storage_t storage_;
-  call_t call_;
+  call_t* call_;
 
   template <class T> function_ref(T&& obj) {
     storage_ = std::address_of(obj);
@@ -1009,19 +1015,18 @@ template <class Ret, class... Args>
 struct function_ref<Ret(Args...)> {
   using storage_t = void*;
   using call_t = Ret(storage_t, Args&&...);
-  // ...
 };
 ```
 
 - <!-- .element: class="fragment" -->
-  If `Args` are reference types (l-value ref or r-value ref), `Args&&` is correct
+  If `Args` is a reference, `function_ref<int(int&)>`, `Args&&` is correct
 
 - <!-- .element: class="fragment" -->
-  What if `Args` are PR values
+  What if `Args` is a PR value
   - <!-- .element: class="fragment" -->
-    For small trivially copyable types, e.g. `int`, pass by value `Args`
+    For small `trivially_copyable` types, `function_ref<int(int)>`, pass by value `Args`
   - <!-- .element: class="fragment" -->
-    Otherwise, to avoid expensive moves, pass by rvalue ref `Args&&`
+    Otherwise, `function_ref<int(string)>` to avoid expensive moves, pass by rvalue ref `Args&&`
 
 ---
 
@@ -1082,7 +1087,7 @@ struct function_ref<Ret(Args...)> {
   using call_t = Ret(storage_t, arg_t<Args>...);
 
   storage_t storage_;
-  call_t call_;
+  call_t* call_;
 
   template <class T> function_ref(T&& obj) {
     storage_ = std::address_of(obj);
@@ -1102,7 +1107,7 @@ struct function_ref<Ret(Args...)> {
   using call_t = Ret(storage_t, arg_t<Args>...);
 
   storage_t storage_;
-  call_t call_;
+  call_t* call_;
 
   template <class T> function_ref(T&& obj) requires static_callbale<T> {
 
@@ -1157,7 +1162,7 @@ Benchmark                        non-static         static     speed up
 
 ---
 
-## Takeaway 6
+## Takeaway 7
 
 - <!-- .element: class="fragment" -->
   Use `std::function_ref` if you need type erasure but not ownership
