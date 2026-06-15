@@ -355,8 +355,8 @@ static_assert(sizeof(std::expected<Foo, ErrCode>) == 8);
 
 ## `sizeof(std::expected)` Smaller, Better ?
 
-- <!-- .element: class="fragment" --> Smaller Memory Footprint
-- <!-- .element: class="fragment" --> Better Cache Locality
+- <!-- .element: class="fragment" --> Smaller Memory Footprint?
+- <!-- .element: class="fragment" --> Better Cache Locality?
 - <!-- .element: class="fragment" -->
   `std::expected` is likely to be used as a return type
 
@@ -399,10 +399,11 @@ compute():
 
 ## I Cannot Reproduce the Padding Reuse
 
-```cpp [1-11 | 11]
+```cpp [1-12 | 12]
 struct Foo {
   int i;
   char c;
+  bool b;
 };
 
 struct Bar {
@@ -423,10 +424,11 @@ static_assert(sizeof(Bar) == 12); // c2 not in the padding !
 
 ## Make it not a C `struct`
 
-```cpp [1-11 | 2,3,8 | 11]
+```cpp [1-12 | 2,3,4,9 | 12]
 struct Foo {
   int i{};
   char c{};
+  bool b{};
 };
 
 struct Bar {
@@ -470,14 +472,31 @@ static_assert(sizeof(Bar) == 8); // c2 in the padding !
   Very conservative: seems to only reuse the empty type's padding
 
 ```cpp
-struct empty {};
+struct Empty {};
 
-struct foo {
-    [[msvc::no_unique_address]] empty e;
+struct Foo {
+    [[msvc::no_unique_address]] Empty e;
     char c;
 };
 
-static_assert(sizeof(foo) == 1);
+static_assert(sizeof(Foo) == 1);
+```
+<!-- .element: class="fragment" -->
+
+---
+
+## A Nasty Bug
+
+```cpp [1-5|2|3|4]
+int main() {
+    std::expected<Foo, int> e1(Foo{});
+    std::expected e2(e1);
+    assert(e2.has_value());
+}
+```
+
+```bash
+output.s: /app/example.cpp:15: int main(): Assertion `e2.has_value()' failed.
 ```
 <!-- .element: class="fragment" -->
 
@@ -509,23 +528,6 @@ class expected {
 
 ---
 
-## A Nasty Bug
-
-```cpp [1-5|2|3|4]
-int main() {
-    std::expected<Foo, int> e1(Foo{});
-    std::expected e2(e1);
-    assert(e2.has_value());
-}
-```
-
-```bash
-output.s: /app/example.cpp:15: int main(): Assertion `e2.has_value()' failed.
-Program terminated with signal: SIGSEGV
-```
-<!-- .element: class="fragment" -->
-
----
 
 ## Zero-Initialisation
 
@@ -723,7 +725,7 @@ s.my_exp.emplace(42); // construct_at(int*, int) is very safe! int has no paddin
 
 ## Final Fix
 
-```cpp [1-9 | 11-14 | 15 | 17 | 20-21]
+```cpp [1-9 | 11-14 | 16 | 18 ]
 template <class Val, class Err>
 struct repr {
     union U {
@@ -735,16 +737,14 @@ struct repr {
 };
 
 template <class Val, class Err>
-struct expected_base {
+class expected {
     repr<Val, Err> repr_; // no [[no_unique_address]]
 };
-template <class Val, class Err> requires bool_is_not_in_padding
-struct expected_base {
+
+template <class Val, class Err> requires union_has_no_padding
+class expected {
     [[no_unique_address]] repr<Val, Err> repr_;
 };
-
-template <class Val, class Err>
-class expected : expected_base<Val, Err> {};
 ```
 
 ---
@@ -755,14 +755,14 @@ class expected : expected_base<Val, Err> {};
   Be aware of the consequence if you do mix `[[no_unique_address]]` with manual lifetime management (`union`, `construct_at`, `placement-new`).
 
 - <!-- .element: class="fragment" -->
-  `[[no_unique_address]]` is not recursive. Intermediate `struct` can stops padding being reused.
+  `[[no_unique_address]]` is not transitive. Intermediate `struct` can stops padding being reused.
 
 ---
 
 ## `flat_map` Insertion
 
 ```cpp
-template <class Key, class Value, class Compare>
+template <class Key, class Value, class Compare = less<Key>>
 class flat_map {
   std::vector<Key> keys_; // always sorted
   std::vector<Value> values_;
@@ -1024,28 +1024,21 @@ struct function_ref<Ret(Args...)> {
 - <!-- .element: class="fragment" -->
   What if `Args` is a PR value
   - <!-- .element: class="fragment" -->
-    For small `trivially_copyable` types, `function_ref<int(int)>`, pass by value `Args`
+    `function_ref<int(int)>`, pass `int` by value internally
   - <!-- .element: class="fragment" -->
-    Otherwise, `function_ref<int(string)>` to avoid expensive moves, pass by rvalue ref `Args&&`
+    `function_ref<int(string)>`, pass `string&&` by rvalue ref internally, as moves are more expensive
 
 ---
 
 ## Value Categories of `Args`
 
-```cpp [1-13 | 18]
+```cpp [1-3 | 5-6 | 11]
 template <class Arg>
-struct arg {
-  using type = Arg&&;
-};
+concept pass_by_register =
+    !is_reference_v<Arg> && sizeof(Arg) <= 16 && is_trivially_copyable_v<Arg>;
 
 template <class Arg>
-  requires(!is_reference_v<Arg> && is_trivially_copyable_v<Arg> && sizeof(Arg) <= 16)
-struct arg<Arg> {
-  using type = Arg;
-};
-
-template <class Arg>
-using arg_t = arg<Arg>::type;
+using arg_t = conditional_t<pass_by_register<Arg>, Arg, Arg&&>;
 
 template <class Ret, class... Args>
 struct function_ref<Ret(Args...)> {
@@ -1093,7 +1086,7 @@ struct function_ref<Ret(Args...)> {
     storage_ = std::address_of(obj);
     call_ = [](storage_t storage, arg_t<Args>... args) -> Ret {
       auto obj_ptr = static_cast<remove_reference_t<T>*>(storage);
-      return std::invoke(*obj_ptr, static_cast<arg_t<Args>>(args)...);
+      return std::invoke(*obj_ptr, std::forward<arg_t<Args>>(args)...);
     };
   }
 };
@@ -1113,7 +1106,7 @@ struct function_ref<Ret(Args...)> {
 
     call_ = [](storage_t        , arg_t<Args>... args) -> Ret {
 
-      return remove_cvref_t<T>::operator()(static_cast<arg_t<Args>>(args)...);
+      return remove_cvref_t<T>::operator()(std::forward<arg_t<Args>>(args)...);
     };
   }
 };
@@ -1130,10 +1123,7 @@ struct function_ref<Ret(Args...)> {
   Save one store on construction
 
 - <!-- .element: class="fragment" -->
-  Save one load on calling the function
-
-- <!-- .element: class="fragment" -->
-  For small stackless functions, remove the need to take an address of the stack
+  For small functions, remove the need to take an address of the stack
   
   ```cpp
   int algo(std::function_ref<int(int, int)>, int);
@@ -1170,6 +1160,76 @@ Benchmark                        non-static         static     speed up
 
 - <!-- .element: class="fragment" -->
   Mark lambdas' `operator()` `static` and benefit from STL optimisations
+
+--
+
+## Position of `storage` in the Signature
+
+```cpp [4]
+template <class Ret, class... Args>
+struct function_ref<Ret(Args...)> {
+  using storage_t = void*;
+  using call_t = Ret(storage_t, arg_t<Args>...);
+};
+```
+
+```cpp [4]
+template <class Ret, class... Args>
+struct function_ref<Ret(Args...)> {
+  using storage_t = void*;
+  using call_t = Ret(arg_t<Args>..., storage_t);
+};
+```
+
+--
+
+## Sibling Call Optimisation
+
+```cpp
+int algo(function_ref<int(int, char,int, bool)>, int x);
+
+struct X {
+     int operator()(int, char, int, bool) ;
+};
+
+int test(){
+    X x;
+    return algo(x, 42);
+}
+```
+
+- <!-- .element: class="fragment" -->
+  `operator()` is not `static` in majority of the use cases
+
+- <!-- .element: class="fragment" -->
+  `this` is usually passed as the first argument
+
+- <!-- .element: class="fragment" -->
+  Putting `storage` at the first argument will trigger the sibling call optimisation
+
+--
+
+## Sibling Call Optimisation
+
+![sibling](<img/libc++_accu/sibling.png>)
+
+--
+
+## Sibling Call Optimisation Benchmark
+
+```bash
+Benchmark                      head          tail     speed up
+[head vs tail]/1                  2             2         0.5%
+[head vs tail]/1024            1621          1603         1.1%
+[head vs tail]/131072        206363        205472         0.4%
+[head vs tail]/16777216    26128691      26531519        -1.5%
+```
+
+--
+
+## Takeaway 8
+
+- Measure, Measure, Measure
 
 ---
 
